@@ -55,7 +55,7 @@ Frozen: Option<BlockNumber>,
 ## Session Change
 
 1. If the current session is not greater than `config.dispute_period + 1`, nothing to do here.
-1. Set `pruning_target = current_session - config.dispute_period - 1`. We add the extra `1` because we want to keep things for `config.dispute_period` _full_ sessions. 
+1. Set `pruning_target = current_session - config.dispute_period - 1`. We add the extra `1` because we want to keep things for `config.dispute_period` _full_ sessions.
    The stuff at the end of the most recent session has been around for a little over 0 sessions, not a little over 1.
 1. If `LastPrunedSession` is `None`, then set `LastPrunedSession` to `Some(pruning_target)` and return.
 1. Otherwise, clear out all disputes, included candidates, and `SpamSlots` entries in the range `last_pruned..=pruning_target` and set `LastPrunedSession` to `Some(pruning_target)`.
@@ -69,8 +69,8 @@ Frozen: Option<BlockNumber>,
 * `filter_multi_dispute_data(MultiDisputeStatementSet) -> MultiDisputeStatementSet`:
   1. Takes a `MultiDisputeStatementSet` and filters it down to a `MultiDisputeStatementSet`
     that satisfies all the criteria of `provide_multi_dispute_data`. That is, eliminating
-    ancient votes, votes which overwhelm the maximum amount of spam slots, and duplicates. 
-    This can be used by block authors to create the final submission in a block which is 
+    ancient votes, votes which overwhelm the maximum amount of spam slots, and duplicates.
+    This can be used by block authors to create the final submission in a block which is
     guaranteed to pass the `provide_multi_dispute_data` checks.
 
 * `provide_multi_dispute_data(MultiDisputeStatementSet) -> Vec<(SessionIndex, Hash)>`:
@@ -78,7 +78,7 @@ Frozen: Option<BlockNumber>,
   1. Return a list of all candidates who just had disputes initiated.
 
 * `provide_dispute_data(DisputeStatementSet) -> bool`: Provide data to an ongoing dispute or initiate a dispute.
-  1. All statements must be issued under the correct session for the correct candidate. 
+  1. All statements must be issued under the correct session for the correct candidate.
   1. `SessionInfo` is used to check statement signatures and this function should fail if any signatures are invalid.
   1. If there is no dispute under `Disputes`, create a new `DisputeState` with blank bitfields.
   1. If `concluded_at` is `Some`, and is `concluded_at + config.post_conclusion_acceptance_period < now`, return false.

@@ -23,7 +23,7 @@
 
 use crate::{
 	disputes::DisputesHandler,
-	inclusion,
+	inclusion, initializer,
 	scheduler::{self, FreedReason},
 	shared, ump,
 };
@@ -37,6 +37,8 @@ use primitives::v1::{
 };
 use sp_runtime::traits::Header as HeaderT;
 use sp_std::prelude::*;
+#[cfg(feature = "runtime-benchmarks")]
+mod benchmarking;
 
 pub use pallet::*;
 
@@ -57,7 +59,7 @@ pub mod pallet {
 
 	#[pallet::config]
 	#[pallet::disable_frame_system_supertrait_check]
-	pub trait Config: inclusion::Config + scheduler::Config {}
+	pub trait Config: inclusion::Config + scheduler::Config + initializer::Config {}
 
 	#[pallet::error]
 	pub enum Error<T> {

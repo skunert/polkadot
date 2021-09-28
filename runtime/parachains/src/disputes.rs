@@ -934,6 +934,14 @@ impl<T: Config> Pallet<T> {
 					.get(validator_index.0 as usize)
 					.ok_or(Error::<T>::ValidatorIndexOutOfBounds)?;
 
+				println!(
+					"B validator_index {}. validator_public {:?}",
+					validator_index.0, validator_public
+				);
+				println!(
+					"B2 hash: {:?}, \n session {:?}, \n statement {:?}, \n sig {:?}",
+					set.candidate_hash, set.session, statement, signature
+				);
 				// Check signature before importing.
 				check_signature(
 					&validator_public,

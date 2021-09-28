@@ -7,7 +7,8 @@ This module does not have the same initialization/finalization concerns as the o
 There are a couple of important notes to the operations in this inherent as they relate to disputes.
 1. We don't accept bitfields or backed candidates if in "governance-only" mode from having a local dispute conclude on this fork.
 1. When disputes are initiated, we remove the block from pending availability. This allows us to roll back chains to the block before blocks are included as opposed to backing. It's important to do this before processing bitfields.
-1. `Inclusion::collect_disputed` is kind of expensive so it's important to gate this on whether there are actually any new disputes. Which should be never.
+1. `Inclusion::collect_disputed` is kind of expensive so it's important to gate this on whether there are actually any new disputes. Which should be never. 
+DEV TODO: Figure out why we never expect any actual new disputes
 1. And we don't accept parablocks that have open disputes or disputes that have concluded against the candidate. It's important to import dispute statements before backing, but this is already the case as disputes are imported before processing bitfields.
 
 ## Storage
