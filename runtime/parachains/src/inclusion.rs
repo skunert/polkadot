@@ -54,6 +54,7 @@ pub struct AvailabilityBitfieldRecord<N> {
 /// A backed candidate pending availability.
 #[derive(Encode, Decode, PartialEq, TypeInfo)]
 #[cfg_attr(test, derive(Debug))]
+// #[cfg_attr(feature = "runtime-benchmarks", derive(Default))] // TODO get this to work
 pub struct CandidatePendingAvailability<H, N> {
 	/// The availability core this is assigned to.
 	pub(crate) core: CoreIndex,

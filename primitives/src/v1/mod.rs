@@ -510,7 +510,8 @@ impl<H: Encode, N: Encode> PersistedValidationData<H, N> {
 
 /// Commitments made in a `CandidateReceipt`. Many of these are outputs of validation.
 #[derive(PartialEq, Eq, Clone, Encode, Decode, TypeInfo)]
-#[cfg_attr(feature = "std", derive(Debug, Default, Hash, MallocSizeOf))]
+#[cfg_attr(feature = "std", derive(Debug, Hash, MallocSizeOf))]
+#[cfg_attr(feature = "runtime-benchmarks", derive(Default))] // TODO get this to work
 pub struct CandidateCommitments<N = BlockNumber> {
 	/// Messages destined to be interpreted by the Relay chain itself.
 	pub upward_messages: Vec<UpwardMessage>,
@@ -682,8 +683,9 @@ pub struct ParathreadEntry {
 }
 
 /// What is occupying a specific availability core.
-#[derive(Clone, Encode, Decode, TypeInfo)]
-#[cfg_attr(feature = "std", derive(PartialEq, Debug))]
+#[derive(Clone, Encode, Decode, TypeInfo, PartialEq)]
+// #[cfg_attr(feature = "std", derive(PartialEq, Debug))]
+#[cfg_attr(feature = "std", derive(Debug))]
 pub enum CoreOccupied {
 	/// A parathread.
 	Parathread(ParathreadEntry),

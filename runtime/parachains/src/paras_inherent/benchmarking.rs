@@ -19,10 +19,11 @@ use crate::inclusion::CandidatePendingAvailability;
 use frame_benchmarking::{account, benchmarks, impl_benchmark_test_suite};
 use frame_system::{pallet_prelude::*, RawOrigin};
 use primitives::v1::{
-	CandidateHash, DisputeStatement, DisputeStatementSet, ExplicitDisputeStatement, Id as ParaId,
-	InvalidDisputeStatementKind, ValidatorId, ValidatorIndex,
+	CandidateCommitments, CandidateHash, CoreOccupied, DisputeStatement, DisputeStatementSet,
+	ExplicitDisputeStatement, Id as ParaId, InvalidDisputeStatementKind, ValidatorId,
+	ValidatorIndex,
 };
-use sp_core::{crypto::CryptoType, Pair};
+use sp_core::{crypto::CryptoType, Pair, H256};
 use sp_runtime::traits::{One, Zero};
 use std::collections::HashMap;
 
@@ -45,20 +46,33 @@ fn run_to_block<T: Config>(to: u32) {
 	}
 }
 
+fn candidate_availability_mock<T: Config>(
+	seed: u32,
+	candidate_hash: CandidateHash,
+) -> CandidatePendingAvailability<T::Hash, T::BlockNumber> {
+	// TODO can make benchmark gated function for making this struct inclusion so fields don't
+	// need to be pub(crate)
+	CandidatePendingAvailability::<T::Hash, T::BlockNumber> {
+		core: seed.into(), // CoreIndex - we need these to correspond to freed cores
+		hash: candidate_hash,
+		descriptor: Default::default(),
+		availability_votes: Default::default(),
+		backers: Default::default(),
+		relay_parent_number: Zero::zero(),
+		backed_in_number: One::one(),
+		backing_group: seed.into(),
+	}
+}
+
 benchmarks! {
-	enter {
-
-		// let total_validators = 100;
-		let total_validators = 3;
-		// let max_dispute_statement_sets = 100;
-		let max_dispute_statement_sets = 2;
-		let byzantine_statement_thresh = total_validators / 3;
-		let max_statements = total_validators;
-		// para block candidates. Each candidate has a dispute statement set.
-		// let max_candidates = u8::MAX;
-		let max_candidates = 3;
-
+	enter_max_disputed {
 		let config = crate::configuration::Pallet::<T>::config();
+		let max_validators = config.max_validators.unwrap_or(200);
+		let validators_per_core = config.max_validators_per_core.unwrap_or(5);
+		let max_cores = max_validators / validators_per_core;
+		let max_candidates = max_cores; // assuming we can only have 1 candidate per core. TODO check if this is ok
+		let max_statements = max_validators;
+		let byzantine_statement_thresh = max_statements / 3;
 
 		let header = T::Header::new(
 			One::one(),			// number
@@ -69,7 +83,15 @@ benchmarks! {
 
 		);
 
-		let validator_pairs = (0..total_validators).map(|i| {
+		// make sure parachains exist prior to session change.
+		for i in 0..max_cores {
+			let para_id = ParaId::from(i as u32);
+			crate::paras::Parachains::<T>::append(para_id);
+		}
+		assert_eq!(crate::paras::Parachains::<T>::get().iter().count(), max_cores as usize);
+
+
+		let validator_pairs = (0..max_validators).map(|i| {
 			let pair = <ValidatorId as CryptoType>::Pair::generate().0;
 
 			let account: T::AccountId = account("validator", i, i);
@@ -93,11 +115,14 @@ benchmarks! {
 			// Some(validators_public) // queued
 		);
 
-		let vals = validators_public.collect::<Vec<_>>();
-		let val_0 = vals.get(0).unwrap();
 
 		run_to_block::<T>(2);
 		frame_system::Pallet::<T>::set_parent_hash(header.hash());
+
+		// setup at session change.
+		assert_eq!(crate::scheduler::AvailabilityCores::<T>::get().iter().count(), max_cores as usize);
+		assert_eq!(crate::scheduler::ValidatorGroups::<T>::get().iter().count(), max_cores as usize);
+
 
 		// assert the current session is 0.
 		let current_session = 1;
@@ -117,28 +142,18 @@ benchmarks! {
 
 
 		let mut spam_count = 0;
-		let disputes = (0..max_candidates).map(|seed| {
-			let candidate_hash = CandidateHash(sp_core::H256::repeat_byte(seed));
+		let disputes = (0..max_cores).map(|seed| {
+			let candidate_hash = CandidateHash(H256::from_low_u64_le(seed as u64));
 
 			// fill corresponding storage items for inclusion that will be `taken` when `collect_disputed`
 			// is called.
-
-			// TODO can make benchmark gated function for making this struct inclusion so fields don't
-			// need to be pub(crate)
-			let candidate_availability = CandidatePendingAvailability::<T::Hash, T::BlockNumber> {
-				core: (seed as u32).into(),
-				hash: candidate_hash,
-				descriptor: Default::default(),
-				availability_votes: Default::default(),
-				backers: Default::default(),
-				relay_parent_number: Zero::zero(),
-				backed_in_number: One::one(),
-				backing_group: (seed as u32).into(),
-			};
-
+			let candidate_availability = candidate_availability_mock::<T>(seed, candidate_hash);
+			let commitments = CandidateCommitments::<u32>::default();
+			let para_id = ParaId::from(seed as u32);
 			crate::inclusion::PendingAvailability::<T>::insert(
-				ParaId::from(seed as u32), candidate_availability
+				para_id, candidate_availability
 			);
+			crate::inclusion::PendingAvailabilityCommitments::<T>::insert(&para_id, commitments);
 
 			// create the set of statements to dispute the above candidate hash.
 			let statement_range = if spam_count < config.dispute_max_spam_slots {
@@ -184,15 +199,44 @@ benchmarks! {
 
 		}).collect::<Vec<_>>();
 
+
+		// create 1 validator group per core.
+		// for i in 0..max_cores {
+		// 	let validators_per_core
+		// 	let start = validators_per_core * i;
+		// 	let end = start + validators_per_core;
+		// 	let group: Vec<ValidatorIndex> = (start..end).map(Into::into).collect();
+		// 	crate::scheduler::ValidatorGroups::append(group);
+		// }
+		//
+
+		// schedule free cores - takes `just_freed_cores`
+		// ParathreadClaimIndex -> for now ignoring this, assuming no parathreads
+		// <paras::Pallet<T>>::parachains();
+
+
+		// should contain max_core parachains for worst case
+		// <paras::Pallet<T>>::parachains()
+
+		// worst case for this storage item is nothing is scheduled, and we end up scheduling every
+		// core and thus filling this item.
+		assert_eq!(crate::scheduler::Scheduled::<T>::get().iter().count(), 0);
+
 		assert_eq!(
 			crate::disputes::SpamSlots::<T>::get(&current_session),
 			None
 		);
 
-		// TODO
-		// - fill `PendingAvailability`
-		// - fill `PendingAvailabilityCommitments`
-		// - make sure they are all taken in `Inclusion::collect_disputes`
+		println!("fA");
+		assert_eq!(
+			crate::inclusion::PendingAvailabilityCommitments::<T>::iter().count(),
+			max_cores as usize
+		);
+		println!("fB");
+		assert_eq!(
+			crate::inclusion::PendingAvailability::<T>::iter().count(),
+			max_cores as usize
+		);
 
 		let data = ParachainsInherentData {
 			bitfields: Default::default(),
@@ -201,7 +245,7 @@ benchmarks! {
 			parent_header: header,
 		};
 
-	}: _(RawOrigin::None, data)
+	}: enter(RawOrigin::None, data)
 	verify {
 		// check that the disputes storage has updated as expected.
 
@@ -210,13 +254,32 @@ benchmarks! {
 			// we expect the first 1/3rd of validators to have maxed out spam slots. Sub 1 for when
 			// there is an odd number of validators.
 			&spam_slots[..(byzantine_statement_thresh - 1) as usize]
-				.iter()
-				.all(|n| *n == config.dispute_max_spam_slots)
+			.iter()
+			.all(|n| *n == config.dispute_max_spam_slots)
 		);
 		assert!(
 			&spam_slots[byzantine_statement_thresh as usize ..]
-				.iter()
-				.all(|n| *n == 0)
+			.iter()
+			.all(|n| *n == 0)
+		);
+
+		println!("fC");
+		// pending availability data is removed when disputes are collected.
+		assert_eq!(
+			crate::inclusion::PendingAvailabilityCommitments::<T>::iter().count(),
+			0
+		);
+		assert_eq!(
+			crate::inclusion::PendingAvailability::<T>::iter().count(),
+			0
+		);
+
+		println!("fD");
+		// max possible number of cores have been scheduled.
+		assert_eq!(crate::scheduler::Scheduled::<T>::get().iter().count(), max_cores as usize);
+		// all cores are occupied by a parachain.
+		assert_eq!(
+			crate::scheduler::AvailabilityCores::<T>::get().iter().count(), max_cores as usize
 		);
 	}
 }
