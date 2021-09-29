@@ -15,14 +15,15 @@
 // along with Polkadot.  If not, see <http://www.gnu.org/licenses/>.
 
 use super::*;
+use crate::inclusion::CandidatePendingAvailability;
 use frame_benchmarking::{account, benchmarks, impl_benchmark_test_suite};
-use frame_system::RawOrigin;
+use frame_system::{pallet_prelude::*, RawOrigin};
 use primitives::v1::{
-	CandidateHash, DisputeStatement, DisputeStatementSet, ExplicitDisputeStatement,
+	CandidateHash, DisputeStatement, DisputeStatementSet, ExplicitDisputeStatement, Id as ParaId,
 	InvalidDisputeStatementKind, ValidatorId, ValidatorIndex,
 };
 use sp_core::{crypto::CryptoType, Pair};
-use sp_runtime::traits::One;
+use sp_runtime::traits::{One, Zero};
 use std::collections::HashMap;
 
 // Brainstorming worst case aspects:
@@ -47,11 +48,17 @@ fn run_to_block<T: Config>(to: u32) {
 benchmarks! {
 	enter {
 
-		let total_validators = 1_000;
-		let max_dispute_statement_sets = 100;
-		let max_statements = total_validators / 3;
+		// let total_validators = 100;
+		let total_validators = 3;
+		// let max_dispute_statement_sets = 100;
+		let max_dispute_statement_sets = 2;
+		let byzantine_statement_thresh = total_validators / 3;
+		let max_statements = total_validators;
 		// para block candidates. Each candidate has a dispute statement set.
-		let max_candidates = u8::MAX;
+		// let max_candidates = u8::MAX;
+		let max_candidates = 3;
+
+		let config = crate::configuration::Pallet::<T>::config();
 
 		let header = T::Header::new(
 			One::one(),			// number
@@ -109,18 +116,46 @@ benchmarks! {
 			.collect::<Vec<_>>();
 
 
-		// let disputes = (0..max_candidates).map(|candidate_seed| {
-		let disputes = (0..1).map(|candidate_seed| {
-			let candidate_hash = CandidateHash(sp_core::H256::repeat_byte(candidate_seed));
+		let mut spam_count = 0;
+		let disputes = (0..max_candidates).map(|seed| {
+			let candidate_hash = CandidateHash(sp_core::H256::repeat_byte(seed));
+
+			// fill corresponding storage items for inclusion that will be `taken` when `collect_disputed`
+			// is called.
+
+			// TODO can make benchmark gated function for making this struct inclusion so fields don't
+			// need to be pub(crate)
+			let candidate_availability = CandidatePendingAvailability::<T::Hash, T::BlockNumber> {
+				core: (seed as u32).into(),
+				hash: candidate_hash,
+				descriptor: Default::default(),
+				availability_votes: Default::default(),
+				backers: Default::default(),
+				relay_parent_number: Zero::zero(),
+				backed_in_number: One::one(),
+				backing_group: (seed as u32).into(),
+			};
+
+			crate::inclusion::PendingAvailability::<T>::insert(
+				ParaId::from(seed as u32), candidate_availability
+			);
 
 			// create the set of statements to dispute the above candidate hash.
-			let statements = (0..1).map(|validator_index| {
-			// let statements = (0..max_statements).map(|validator_index| {
+			let statement_range = if spam_count < config.dispute_max_spam_slots {
+				// if we have not hit the spam dispute statement limit, only make up to the byzantine
+				// threshold number of statements.
+
+				// TODO: we could max the amount of spam even more by  taking 3 1/3 chunks of
+				// validator set and having them each attest to different statements. Right now we
+				// just use 1 1/3 chunk.
+				0..byzantine_statement_thresh
+			} else {
+				// otherwise, make the maximum number of statements, which is over the byzantine
+				// threshold and thus these statements will not be counted as potential spam.
+				0..max_statements
+			};
+			let statements = statement_range.map(|validator_index| {
 				let validator_pair = &validators_shuffled.get(validator_index as usize).unwrap().1;
-
-				//DEBUG
-
-				let statement = DisputeStatement::Invalid(InvalidDisputeStatementKind::Explicit);
 				let signing_payload = ExplicitDisputeStatement {
 					valid: false,
 					candidate_hash: candidate_hash.clone(),
@@ -129,19 +164,16 @@ benchmarks! {
 				.signing_payload();
 				let statement_sig = validator_pair.sign(&signing_payload);
 
-				println!("A val index {}, public is {:?}", validator_index, validator_pair.public());
-				println!(
-					"A2 hash: {:?}, \n session {:?}, \n statement {:?}, \n sig {:?}",
-					candidate_hash, current_session,
-					statement, statement_sig
-				);
-
 				(
-					statement,
+					DisputeStatement::Invalid(InvalidDisputeStatementKind::Explicit),
 					ValidatorIndex(validator_index),
 					statement_sig,
 				)
 			}).collect::<Vec<_>>();
+
+			if spam_count < config.dispute_max_spam_slots {
+				spam_count += 1;
+			}
 
 			// return dispute statements with metadata.
 			DisputeStatementSet {
@@ -149,7 +181,18 @@ benchmarks! {
 				session: current_session,
 				statements
 			}
+
 		}).collect::<Vec<_>>();
+
+		assert_eq!(
+			crate::disputes::SpamSlots::<T>::get(&current_session),
+			None
+		);
+
+		// TODO
+		// - fill `PendingAvailability`
+		// - fill `PendingAvailabilityCommitments`
+		// - make sure they are all taken in `Inclusion::collect_disputes`
 
 		let data = ParachainsInherentData {
 			bitfields: Default::default(),
@@ -157,11 +200,29 @@ benchmarks! {
 			disputes, // Vec<DisputeStatementSet>
 			parent_header: header,
 		};
+
 	}: _(RawOrigin::None, data)
 	verify {
 		// check that the disputes storage has updated as expected.
+
+		let spam_slots = crate::disputes::SpamSlots::<T>::get(&current_session).unwrap();
+		assert!(
+			// we expect the first 1/3rd of validators to have maxed out spam slots. Sub 1 for when
+			// there is an odd number of validators.
+			&spam_slots[..(byzantine_statement_thresh - 1) as usize]
+				.iter()
+				.all(|n| *n == config.dispute_max_spam_slots)
+		);
+		assert!(
+			&spam_slots[byzantine_statement_thresh as usize ..]
+				.iter()
+				.all(|n| *n == 0)
+		);
 	}
 }
+
+// - no spam scenario
+// - max backed candidates scenario
 
 impl_benchmark_test_suite!(
 	Pallet,

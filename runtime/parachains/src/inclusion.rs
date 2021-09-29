@@ -56,21 +56,21 @@ pub struct AvailabilityBitfieldRecord<N> {
 #[cfg_attr(test, derive(Debug))]
 pub struct CandidatePendingAvailability<H, N> {
 	/// The availability core this is assigned to.
-	core: CoreIndex,
+	pub(crate) core: CoreIndex,
 	/// The candidate hash.
-	hash: CandidateHash,
+	pub(crate) hash: CandidateHash,
 	/// The candidate descriptor.
-	descriptor: CandidateDescriptor<H>,
+	pub(crate) descriptor: CandidateDescriptor<H>,
 	/// The received availability votes. One bit per validator.
-	availability_votes: BitVec<BitOrderLsb0, u8>,
+	pub(crate) availability_votes: BitVec<BitOrderLsb0, u8>,
 	/// The backers of the candidate pending availability.
-	backers: BitVec<BitOrderLsb0, u8>,
+	pub(crate) backers: BitVec<BitOrderLsb0, u8>,
 	/// The block number of the relay-parent of the receipt.
-	relay_parent_number: N,
+	pub(crate) relay_parent_number: N,
 	/// The block number of the relay-chain block this was backed in.
-	backed_in_number: N,
+	pub(crate) backed_in_number: N,
 	/// The group index backing this block.
-	backing_group: GroupIndex,
+	pub(crate) backing_group: GroupIndex,
 }
 
 impl<H, N> CandidatePendingAvailability<H, N> {
