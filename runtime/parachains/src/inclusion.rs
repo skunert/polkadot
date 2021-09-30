@@ -402,7 +402,9 @@ impl<T: Config> Pallet<T> {
 		scheduled: Vec<CoreAssignment>,
 		group_validators: impl Fn(GroupIndex) -> Option<Vec<ValidatorIndex>>,
 	) -> Result<Vec<CoreIndex>, DispatchError> {
+		println!("iA");
 		ensure!(candidates.len() <= scheduled.len(), Error::<T>::UnscheduledCandidate);
+		println!("iB");
 
 		if scheduled.is_empty() {
 			return Ok(Vec::new())
@@ -460,20 +462,25 @@ impl<T: Config> Pallet<T> {
 					Error::<T>::NotCollatorSigned,
 				);
 
+				println!("iC");
 				let validation_code_hash =
 					<paras::Pallet<T>>::validation_code_hash_at(para_id, now, None)
 						// A candidate for a parachain without current validation code is not scheduled.
 						.ok_or_else(|| Error::<T>::UnscheduledCandidate)?;
+				println!("iD");
+
 				ensure!(
 					candidate.descriptor().validation_code_hash == validation_code_hash,
 					Error::<T>::InvalidValidationCodeHash,
 				);
 
+				println!("iF");
 				ensure!(
 					candidate.descriptor().para_head ==
 						candidate.candidate.commitments.head_data.hash(),
 					Error::<T>::ParaHeadMismatch,
 				);
+				println!("iG");
 
 				if let Err(err) = check_cx.check_validation_outputs(
 					para_id,
@@ -493,6 +500,7 @@ impl<T: Config> Pallet<T> {
 					);
 					Err(err.strip_into_dispatch_err::<T>())?;
 				};
+				println!("iH");
 
 				for (i, assignment) in scheduled[skip..].iter().enumerate() {
 					check_assignment_in_order(assignment)?;

@@ -20,10 +20,10 @@ use bitvec::vec::BitVec;
 use frame_benchmarking::{account, benchmarks, impl_benchmark_test_suite};
 use frame_system::{pallet_prelude::*, RawOrigin};
 use primitives::v1::{
-	CandidateCommitments, CandidateDescriptor, CandidateHash, CollatorId,
-	CommittedCandidateReceipt, CoreOccupied, DisputeStatement, DisputeStatementSet,
-	ExplicitDisputeStatement, Id as ParaId, InvalidDisputeStatementKind, ValidationCodeHash,
-	ValidatorId, ValidatorIndex,
+	collator_signature_payload, CandidateCommitments, CandidateDescriptor, CandidateHash,
+	CollatorId, CommittedCandidateReceipt, CoreIndex, CoreOccupied, DisputeStatement,
+	DisputeStatementSet, ExplicitDisputeStatement, GroupIndex, HeadData, Id as ParaId,
+	InvalidDisputeStatementKind, ValidationCodeHash, ValidatorId, ValidatorIndex,
 };
 use sp_core::{crypto::CryptoType, Pair, H256};
 use sp_runtime::traits::{One, Zero};
@@ -205,31 +205,63 @@ benchmarks! {
 		}).collect::<Vec<_>>();
 
 		let backed_candidates = (disputed..max_candidates).map(|seed| {
+			// TODO make sure this is added to scheduler::Scheduled
+
+			// <scheduler::Pallet<T>>::scheduled()
+
+
+
 			// setup scheduled cores to go with backed candidate
 			//
 			let para_id = ParaId::from(seed as u32);
 			let collator_pair = <CollatorId as CryptoType>::Pair::generate().0;
 
+			let relay_parent = header.hash();
+			let persisted_validation_data_hash = Default::default();
+			let pov_hash = Default::default();
+			let validation_code_hash = Default::default();
+			let signature = collator_pair.sign(&collator_signature_payload(
+				&relay_parent,
+				&para_id,
+				&persisted_validation_data_hash,
+				&pov_hash,
+				&validation_code_hash,
+			));
+
+			crate::scheduler::Scheduled::<T>::append(crate::scheduler::CoreAssignment {
+				core: CoreIndex(seed),
+				para_id,
+				kind: crate::scheduler::AssignmentKind::Parachain,
+				group_idx: GroupIndex::from(seed),
+			});
+
+			let mut past_code_meta = crate::paras::ParaPastCodeMeta::<T::BlockNumber>::default();
+			past_code_meta.note_replacement(0u32.into(), 0u32.into());
+			// Insert ParaPastCodeMeta into `PastCodeMeta` for this para_id
+			crate::paras::PastCodeMeta::<T>::insert(&para_id, past_code_meta);
+			crate::paras::CurrentCodeHash::<T>::insert(&para_id, validation_code_hash.clone());
+			let head_data: HeadData = Default::default();
+
 			BackedCandidate::<T::Hash> {
 				candidate: CommittedCandidateReceipt::<T::Hash> {
 					descriptor: CandidateDescriptor::<T::Hash> {
 						para_id: para_id,
-						relay_parent: header.hash(),
+						relay_parent: relay_parent,
 						collator: collator_pair.public(),
-						persisted_validation_data_hash: Default::default(),
-						pov_hash: Default::default(),
+						persisted_validation_data_hash: persisted_validation_data_hash,
+						pov_hash: pov_hash,
 						erasure_root: Default::default(),
-						signature: collator_pair.sign(Default::default()),
-						para_head: Default::default(),
-						validation_code_hash: Default::default(),
+						signature: signature,
+						para_head: head_data.hash(),
+						validation_code_hash: validation_code_hash,
 					},
 					commitments: CandidateCommitments::<u32> {
 						upward_messages: Vec::new(),
 						horizontal_messages: Vec::new(),
 						new_validation_code: None,
-						head_data: Default::default(), // HeadData
+						head_data: head_data, // HeadData
 						processed_downward_messages: 0,
-						hrmp_watermark: 3u32,
+						hrmp_watermark: 1u32,
 					},
 				},
 				validity_votes: Vec::new(),
@@ -248,7 +280,10 @@ benchmarks! {
 
 		// worst case for this storage item is nothing is scheduled, and we end up scheduling every
 		// core and thus filling this item.
-		assert_eq!(crate::scheduler::Scheduled::<T>::get().iter().count(), 0);
+		assert_eq!(
+			crate::scheduler::Scheduled::<T>::get().iter().count(),
+			(max_candidates - disputed) as usize
+		);
 
 		assert_eq!(
 			crate::disputes::SpamSlots::<T>::get(&current_session),

@@ -161,7 +161,7 @@ impl ParaLifecycle {
 
 impl<N: Ord + Copy + PartialEq> ParaPastCodeMeta<N> {
 	// note a replacement has occurred at a given block number.
-	fn note_replacement(&mut self, expected_at: N, activated_at: N) {
+	pub(crate) fn note_replacement(&mut self, expected_at: N, activated_at: N) {
 		self.upgrade_times.push(ReplacementTimes { expected_at, activated_at })
 	}
 
@@ -347,7 +347,7 @@ pub mod pallet {
 	///
 	/// Corresponding code can be retrieved with [`CodeByHash`].
 	#[pallet::storage]
-	pub(super) type CurrentCodeHash<T: Config> =
+	pub(crate) type CurrentCodeHash<T: Config> =
 		StorageMap<_, Twox64Concat, ParaId, ValidationCodeHash>;
 
 	/// Actual past code hash, indicated by the para id as well as the block number at which it
@@ -363,7 +363,7 @@ pub mod pallet {
 	/// to keep it available for secondary checkers.
 	#[pallet::storage]
 	#[pallet::getter(fn past_code_meta)]
-	pub(super) type PastCodeMeta<T: Config> =
+	pub(crate) type PastCodeMeta<T: Config> =
 		StorageMap<_, Twox64Concat, ParaId, ParaPastCodeMeta<T::BlockNumber>, ValueQuery>;
 
 	/// Which paras have past code that needs pruning and the relay-chain block at which the code was replaced.
@@ -1045,6 +1045,8 @@ impl<T: Config> Pallet<T> {
 			Some(a) => planned_upgrade.as_ref().map_or(false, |u| u <= &a),
 			None => false,
 		};
+
+		println!("code_at {:?}", Self::past_code_meta(&id).code_at(at));
 
 		if upgrade_applied_intermediate {
 			FutureCodeHash::<T>::get(&id)
