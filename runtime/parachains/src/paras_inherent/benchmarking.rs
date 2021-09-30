@@ -278,8 +278,7 @@ benchmarks! {
 		// should contain max_core parachains for worst case
 		// <paras::Pallet<T>>::parachains()
 
-		// worst case for this storage item is nothing is scheduled, and we end up scheduling every
-		// core and thus filling this item.
+		// ensure availability cores are scheduled for backed candidates.
 		assert_eq!(
 			crate::scheduler::Scheduled::<T>::get().iter().count(),
 			(max_candidates - disputed) as usize

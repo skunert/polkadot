@@ -152,6 +152,10 @@ pub mod pallet {
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {
 		/// Enter the paras inherent. This will process bitfields and backed candidates.
+		// #[pallet::weight(
+		//		config.ump_service_total_weight
+		//  	+ T::WeightInfo::enter(data.backed_candidates.len(), data.disputes.len())
+		//  )]
 		#[pallet::weight((
 			MINIMAL_INCLUSION_INHERENT_WEIGHT + data.backed_candidates.len() as Weight * BACKED_CANDIDATE_WEIGHT,
 			DispatchClass::Mandatory,
@@ -215,6 +219,8 @@ pub mod pallet {
 				<scheduler::Pallet<T>>::core_para,
 			)?;
 
+			println!("freed_concluded {:?}", freed_concluded.len());
+
 			// Inform the disputes module of all included candidates.
 			let now = <frame_system::Pallet<T>>::block_number();
 			for (_, candidate_hash) in &freed_concluded {
@@ -268,11 +274,13 @@ pub mod pallet {
 			<scheduler::Pallet<T>>::occupied(&occupied);
 
 			// Give some time slice to dispatch pending upward messages.
-			<ump::Pallet<T>>::process_pending_upward_messages();
+			// this is max config.ump_service_total_weight
+			let _ump_weight = <ump::Pallet<T>>::process_pending_upward_messages();
 
 			// And track that we've finished processing the inherent for this block.
 			Included::<T>::set(Some(()));
 
+			// ump_weight + WeightInfo::enter(backed_candidates_len, disputed.len())
 			Ok(Some(
 				MINIMAL_INCLUSION_INHERENT_WEIGHT +
 					(backed_candidates_len * BACKED_CANDIDATE_WEIGHT),
@@ -321,7 +329,8 @@ fn limit_backed_candidates<T: Config>(
 	// the weight of the paras inherent is already included in the current block weight,
 	// so our operation is simple: if the block is currently overloaded, make this intrinsic smaller
 	if frame_system::Pallet::<T>::block_weight().total() >
-		<T as frame_system::Config>::BlockWeights::get().max_block // shouldn't this check be moved to top of fn?
+		<T as frame_system::Config>::BlockWeights::get().max_block
+	// shouldn't this check be moved to top of fn?
 	{
 		Vec::new()
 	} else {
