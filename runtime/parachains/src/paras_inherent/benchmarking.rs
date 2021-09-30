@@ -16,12 +16,14 @@
 
 use super::*;
 use crate::inclusion::CandidatePendingAvailability;
+use bitvec::vec::BitVec;
 use frame_benchmarking::{account, benchmarks, impl_benchmark_test_suite};
 use frame_system::{pallet_prelude::*, RawOrigin};
 use primitives::v1::{
-	CandidateCommitments, CandidateHash, CoreOccupied, DisputeStatement, DisputeStatementSet,
-	ExplicitDisputeStatement, Id as ParaId, InvalidDisputeStatementKind, ValidatorId,
-	ValidatorIndex,
+	CandidateCommitments, CandidateDescriptor, CandidateHash, CollatorId,
+	CommittedCandidateReceipt, CoreOccupied, DisputeStatement, DisputeStatementSet,
+	ExplicitDisputeStatement, Id as ParaId, InvalidDisputeStatementKind, ValidationCodeHash,
+	ValidatorId, ValidatorIndex,
 };
 use sp_core::{crypto::CryptoType, Pair, H256};
 use sp_runtime::traits::{One, Zero};
@@ -73,6 +75,7 @@ benchmarks! {
 		let max_candidates = max_cores; // assuming we can only have 1 candidate per core. TODO check if this is ok
 		let max_statements = max_validators;
 		let byzantine_statement_thresh = max_statements / 3;
+		let disputed = max_candidates / 2; // half of candidates are disputed.
 
 		let header = T::Header::new(
 			One::one(),			// number
@@ -141,8 +144,10 @@ benchmarks! {
 			.collect::<Vec<_>>();
 
 
+		// TODO
+		// add logic to not dispute backed candidates
 		let mut spam_count = 0;
-		let disputes = (0..max_cores).map(|seed| {
+		let disputes = (0..disputed).map(|seed| {
 			let candidate_hash = CandidateHash(H256::from_low_u64_le(seed as u64));
 
 			// fill corresponding storage items for inclusion that will be `taken` when `collect_disputed`
@@ -199,16 +204,39 @@ benchmarks! {
 
 		}).collect::<Vec<_>>();
 
+		let backed_candidates = (disputed..max_candidates).map(|seed| {
+			// setup scheduled cores to go with backed candidate
+			//
+			let para_id = ParaId::from(seed as u32);
+			let collator_pair = <CollatorId as CryptoType>::Pair::generate().0;
 
-		// create 1 validator group per core.
-		// for i in 0..max_cores {
-		// 	let validators_per_core
-		// 	let start = validators_per_core * i;
-		// 	let end = start + validators_per_core;
-		// 	let group: Vec<ValidatorIndex> = (start..end).map(Into::into).collect();
-		// 	crate::scheduler::ValidatorGroups::append(group);
-		// }
-		//
+			BackedCandidate::<T::Hash> {
+				candidate: CommittedCandidateReceipt::<T::Hash> {
+					descriptor: CandidateDescriptor::<T::Hash> {
+						para_id: para_id,
+						relay_parent: header.hash(),
+						collator: collator_pair.public(),
+						persisted_validation_data_hash: Default::default(),
+						pov_hash: Default::default(),
+						erasure_root: Default::default(),
+						signature: collator_pair.sign(Default::default()),
+						para_head: Default::default(),
+						validation_code_hash: Default::default(),
+					},
+					commitments: CandidateCommitments::<u32> {
+						upward_messages: Vec::new(),
+						horizontal_messages: Vec::new(),
+						new_validation_code: None,
+						head_data: Default::default(), // HeadData
+						processed_downward_messages: 0,
+						hrmp_watermark: 3u32,
+					},
+				},
+				validity_votes: Vec::new(),
+				validator_indices: BitVec::new(),
+			}
+		}).collect::<Vec<_>>();
+
 
 		// schedule free cores - takes `just_freed_cores`
 		// ParathreadClaimIndex -> for now ignoring this, assuming no parathreads
@@ -230,17 +258,17 @@ benchmarks! {
 		println!("fA");
 		assert_eq!(
 			crate::inclusion::PendingAvailabilityCommitments::<T>::iter().count(),
-			max_cores as usize
+			disputed as usize
 		);
 		println!("fB");
 		assert_eq!(
 			crate::inclusion::PendingAvailability::<T>::iter().count(),
-			max_cores as usize
+			disputed as usize
 		);
 
 		let data = ParachainsInherentData {
-			bitfields: Default::default(),
-			backed_candidates: Default::default(),
+			bitfields: Default::default(), // TODO
+			backed_candidates: backed_candidates,
 			disputes, // Vec<DisputeStatementSet>
 			parent_header: header,
 		};
@@ -277,6 +305,8 @@ benchmarks! {
 		println!("fD");
 		// max possible number of cores have been scheduled.
 		assert_eq!(crate::scheduler::Scheduled::<T>::get().iter().count(), max_cores as usize);
+
+		println!("fG");
 		// all cores are occupied by a parachain.
 		assert_eq!(
 			crate::scheduler::AvailabilityCores::<T>::get().iter().count(), max_cores as usize

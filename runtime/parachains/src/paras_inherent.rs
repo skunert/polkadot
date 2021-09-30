@@ -315,10 +315,13 @@ fn limit_backed_candidates<T: Config>(
 		});
 	}
 
+	// TODO checking weight at this point seems strange since most of the weight likely revolves around
+	// count of back candidates?
+
 	// the weight of the paras inherent is already included in the current block weight,
 	// so our operation is simple: if the block is currently overloaded, make this intrinsic smaller
 	if frame_system::Pallet::<T>::block_weight().total() >
-		<T as frame_system::Config>::BlockWeights::get().max_block
+		<T as frame_system::Config>::BlockWeights::get().max_block // shouldn't this check be moved to top of fn?
 	{
 		Vec::new()
 	} else {
