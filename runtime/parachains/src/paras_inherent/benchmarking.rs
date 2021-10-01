@@ -18,19 +18,16 @@ use super::*;
 use crate::inclusion::CandidatePendingAvailability;
 use bitvec::vec::BitVec;
 use frame_benchmarking::{account, benchmarks, impl_benchmark_test_suite};
-use frame_system::{pallet_prelude::*, RawOrigin};
+use frame_system::RawOrigin;
 use primitives::v1::{
 	collator_signature_payload, AvailabilityBitfield, CandidateCommitments, CandidateDescriptor,
 	CandidateHash, CollatorId, CommittedCandidateReceipt, CoreIndex, CoreOccupied,
-	DisputeStatement, DisputeStatementSet, ExplicitDisputeStatement, GroupIndex, HeadData,
-	Id as ParaId, InvalidDisputeStatementKind, Signed, SigningContext, UncheckedSigned,
-	ValidationCodeHash, ValidatorId, ValidatorIndex,
+	DisputeStatement, DisputeStatementSet, GroupIndex, HeadData, Id as ParaId,
+	InvalidDisputeStatementKind, Signed, SigningContext, UncheckedSigned, ValidatorId,
+	ValidatorIndex,
 };
-use sc_keystore::LocalKeystore;
 use sp_core::{crypto::CryptoType, Pair, H256};
-use sp_keystore::{testing::KeyStore, SyncCryptoStore, SyncCryptoStorePtr};
 use sp_runtime::traits::{One, Zero};
-use sp_std::sync::Arc;
 use std::collections::HashMap;
 
 // Brainstorming worst case aspects:
@@ -119,9 +116,6 @@ benchmarks! {
 		let disputed = max_candidates / 3; // half of candidates are disputed.
 		let available = max_candidates / 3;
 
-		// let keystore: SyncCryptoStorePtr = Arc::new(KeyStore::new());
-		// let keystore: SyncCryptoStorePtr = LocalKeystore::in_memory();
-		let keystore: SyncCryptoStorePtr = Arc::new(LocalKeystore::in_memory());
 		let header = T::Header::new(
 			One::one(),			// number
 			Default::default(), //	extrinsics_root,
@@ -185,26 +179,20 @@ benchmarks! {
 			})
 			.collect::<Vec<_>>();
 
-		let availability_bitvec= availability_bitvec::<T>(max_cores, available);
+		let availability_bitvec = availability_bitvec::<T>(max_cores, available);
 		let signing_context = SigningContext { parent_hash: header.hash(), session_index: 1 };
 
-		// let bitfields: Vec<_> = validators_shuffled.iter().enumerate().map(|(i, (public, pair))| {
-		// let bitfields: Vec<_> = validators_shuffled.iter().enumerate().map(|(i, public)| {
-		// 	let x = futures::executor::block_on(Signed::<AvailabilityBitfield>::sign(
-		// 		&keystore,
-		// 		availability_bitvec.clone(),
-		// 		&signing_context,
-		// 		ValidatorIndex(i as u32),
-		// 		public,
-		// 	));
+		let bitfields: Vec<_> = validators_shuffled.iter().enumerate().map(|(i, (public, pair))| {
+			let unchecked_signed = UncheckedSigned::<AvailabilityBitfield>::benchmark_sign(
+				pair,
+				availability_bitvec.clone(),
+				&signing_context,
+				ValidatorIndex(i as u32),
+			);
 
-		// 	println!("x debug {:?}", x);
-
-		// 	x
-		// 	.unwrap()
-		// 	.unwrap()
-		// })
-		// .collect();
+			unchecked_signed
+		})
+		.collect();
 
 		let backed_candidates = (available..disputed).map(|seed| {
 			let para_id = ParaId::from(seed as u32);
@@ -337,8 +325,8 @@ benchmarks! {
 		);
 
 		let data = ParachainsInherentData {
-			// bitfields: bitfields, // TODO
-			bitfields: Default::default(), // TODO
+			bitfields: bitfields, // TODO
+			// bitfields: Default::default(), // TODO
 			backed_candidates: backed_candidates,
 			disputes, // Vec<DisputeStatementSet>
 			parent_header: header,

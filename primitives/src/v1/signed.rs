@@ -19,16 +19,17 @@ use scale_info::TypeInfo;
 
 #[cfg(feature = "std")]
 use application_crypto::AppKey;
+// #[cfg(feature = "runtime-benchmarks")]
+use application_crypto::Pair;
 #[cfg(feature = "std")]
 use sp_keystore::{CryptoStore, Error as KeystoreError, SyncCryptoStorePtr};
 #[cfg(feature = "std")]
 use sp_std::convert::TryInto;
 use sp_std::prelude::Vec;
 
+use crate::v0::{SigningContext, ValidatorId, ValidatorIndex, ValidatorPair, ValidatorSignature};
 use primitives::RuntimeDebug;
 use runtime_primitives::traits::AppVerify;
-
-use crate::v0::{SigningContext, ValidatorId, ValidatorIndex, ValidatorSignature};
 
 /// Signed data with signature already verified.
 ///
@@ -238,6 +239,25 @@ impl<Payload: EncodeAs<RealPayload>, RealPayload: Encode> UncheckedSigned<Payloa
 			signature,
 			real_payload: std::marker::PhantomData,
 		}))
+	}
+
+	/// Sign this payload with the given context and pair. Only for runtime benchmark use cases.
+	#[cfg(feature = "runtime-benchmarks")]
+	pub fn benchmark_sign<H: Encode>(
+		pair: &ValidatorPair,
+		payload: Payload,
+		context: &SigningContext<H>,
+		validator_index: ValidatorIndex,
+	) -> Self {
+		let data = Self::payload_data(&payload, context);
+		let signature = pair.sign(&data);
+
+		Self {
+			payload,
+			validator_index,
+			signature,
+			real_payload: std::marker::PhantomData,
+		}
 	}
 
 	/// Validate the payload given the context and public key.
