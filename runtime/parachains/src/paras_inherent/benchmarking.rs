@@ -23,8 +23,7 @@ use primitives::v1::{
 	collator_signature_payload, AvailabilityBitfield, CandidateCommitments, CandidateDescriptor,
 	CandidateHash, CollatorId, CommittedCandidateReceipt, CoreIndex, CoreOccupied,
 	DisputeStatement, DisputeStatementSet, GroupIndex, HeadData, Id as ParaId,
-	InvalidDisputeStatementKind, Signed, SigningContext, UncheckedSigned, ValidatorId,
-	ValidatorIndex,
+	InvalidDisputeStatementKind, SigningContext, UncheckedSigned, ValidatorId, ValidatorIndex,
 };
 use sp_core::{crypto::CryptoType, Pair, H256};
 use sp_runtime::traits::{One, Zero};
