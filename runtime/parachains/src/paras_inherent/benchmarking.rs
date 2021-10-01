@@ -20,18 +20,17 @@ use bitvec::vec::BitVec;
 use frame_benchmarking::{account, benchmarks, impl_benchmark_test_suite};
 use frame_system::{pallet_prelude::*, RawOrigin};
 use primitives::v1::{
-	collator_signature_payload, CandidateCommitments, CandidateDescriptor, CandidateHash,
-	CollatorId, CommittedCandidateReceipt, CoreIndex, CoreOccupied, DisputeStatement,
-	DisputeStatementSet, ExplicitDisputeStatement, GroupIndex, HeadData, Id as ParaId,
-	InvalidDisputeStatementKind, Signed, SigningContext, UncheckedSigned, ValidationCodeHash,
-	ValidatorId, ValidatorIndex,
+	collator_signature_payload, AvailabilityBitfield, CandidateCommitments, CandidateDescriptor,
+	CandidateHash, CollatorId, CommittedCandidateReceipt, CoreIndex, CoreOccupied,
+	DisputeStatement, DisputeStatementSet, ExplicitDisputeStatement, GroupIndex, HeadData,
+	Id as ParaId, InvalidDisputeStatementKind, Signed, SigningContext, UncheckedSigned,
+	ValidationCodeHash, ValidatorId, ValidatorIndex,
 };
 use sp_core::{crypto::CryptoType, Pair, H256};
 use sp_keystore::{testing::KeyStore, SyncCryptoStorePtr};
 use sp_runtime::traits::{One, Zero};
 use sp_std::sync::Arc;
 use std::collections::HashMap;
-
 
 // Brainstorming worst case aspects:
 //
@@ -70,7 +69,7 @@ fn candidate_availability_mock<T: Config>(
 	}
 }
 
-fn availability_bitvec<T: Config>(cores: u32, available: u32) -> BitVec<bitvec::order::Lsb0, u8> {
+fn availability_bitvec<T: Config>(cores: u32, available: u32) -> AvailabilityBitfield {
 	let mut bitfields = bitvec::bitvec![bitvec::order::Lsb0, u8; 0; 0];
 
 	for i in 0..cores {
@@ -82,7 +81,6 @@ fn availability_bitvec<T: Config>(cores: u32, available: u32) -> BitVec<bitvec::
 			crate::scheduler::AvailabilityCores::<T>::mutate(|cores| {
 				cores[i as usize] = Some(CoreOccupied::Parachain);
 			});
-			let para_id = i;
 
 			// fill corresponding storage items for inclusion
 			let candidate_hash = CandidateHash(H256::from_low_u64_le(i as u64));
@@ -99,7 +97,7 @@ fn availability_bitvec<T: Config>(cores: u32, available: u32) -> BitVec<bitvec::
 		}
 	}
 
-	bitfields
+	bitfields.into()
 }
 
 benchmarks! {
@@ -114,8 +112,8 @@ benchmarks! {
 		let disputed = max_candidates / 3; // half of candidates are disputed.
 		let available = max_candidates / 3;
 
-		let keystore: SyncCryptoStorePtr = Arc::new(KeyStore::new());
-
+		// let keystore: SyncCryptoStorePtr = Arc::new(KeyStore::new());
+		let keystore: SyncCryptoStorePtr = LocalKeystore::in_memory();
 		let header = T::Header::new(
 			One::one(),			// number
 			Default::default(), //	extrinsics_root,
@@ -134,7 +132,23 @@ benchmarks! {
 
 
 		let validator_pairs = (0..max_validators).map(|i| {
-			let pair = <ValidatorId as CryptoType>::Pair::generate().0;
+				// sets up a keystore with the given keyring accounts.
+			// async fn make_keystore(accounts: &[Sr25519Keyring]) -> LocalKeystore {
+
+
+				// for s in accounts.iter().copied().map(|k| k.to_seed()) {
+
+			// 	}
+
+			// 	store
+			// }
+
+
+			let (s, pair) = <ValidatorId as CryptoType>::Pair::generate(&*keystore);
+			keystore
+				.sr25519_generate_new(ASSIGNMENT_KEY_TYPE_ID, Some(s.as_str()))
+				.await
+				.unwrap();
 
 			let account: T::AccountId = account("validator", i, i);
 			(account, pair)
@@ -184,23 +198,19 @@ benchmarks! {
 		let signing_context = SigningContext { parent_hash: header.hash(), session_index: 1 };
 
 		let bitfields: Vec<_> = validators_shuffled.iter().enumerate().map(|(i, (public, pair))| {
-			let sig = futures::executor::block_on(Signed::sign(
+			let x = futures::executor::block_on(Signed::<AvailabilityBitfield>::sign(
 				&keystore,
 				availability_bitvec.clone(),
 				&signing_context,
 				ValidatorIndex(i as u32),
 				public,
-			))
-			.unwrap()
-			.unwrap();
+			));
 
-			// Signed::new(
-			// 	availability_bitvec.clone(),
-			// 	ValidatorIndex(i as u32),
-			// 	sig,
-			// 	&signing_context,
-			// 	public,
-			// )
+			println!("x debug {:?}", x);
+
+			x
+			.unwrap()
+			.unwrap()
 		})
 		.collect();
 
