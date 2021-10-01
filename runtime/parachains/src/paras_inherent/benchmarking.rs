@@ -23,11 +23,15 @@ use primitives::v1::{
 	collator_signature_payload, CandidateCommitments, CandidateDescriptor, CandidateHash,
 	CollatorId, CommittedCandidateReceipt, CoreIndex, CoreOccupied, DisputeStatement,
 	DisputeStatementSet, ExplicitDisputeStatement, GroupIndex, HeadData, Id as ParaId,
-	InvalidDisputeStatementKind, ValidationCodeHash, ValidatorId, ValidatorIndex,
+	InvalidDisputeStatementKind, Signed, SigningContext, UncheckedSigned, ValidationCodeHash,
+	ValidatorId, ValidatorIndex,
 };
 use sp_core::{crypto::CryptoType, Pair, H256};
+use sp_keystore::{testing::KeyStore, SyncCryptoStorePtr};
 use sp_runtime::traits::{One, Zero};
+use sp_std::sync::Arc;
 use std::collections::HashMap;
+
 
 // Brainstorming worst case aspects:
 //
@@ -66,6 +70,38 @@ fn candidate_availability_mock<T: Config>(
 	}
 }
 
+fn availability_bitvec<T: Config>(cores: u32, available: u32) -> BitVec<bitvec::order::Lsb0, u8> {
+	let mut bitfields = bitvec::bitvec![bitvec::order::Lsb0, u8; 0; 0];
+
+	for i in 0..cores {
+		// the first `availability` cores are marked as available
+		if i < available {
+			bitfields.push(true);
+
+			// make sure the core is occupied so the lookup works
+			crate::scheduler::AvailabilityCores::<T>::mutate(|cores| {
+				cores[i as usize] = Some(CoreOccupied::Parachain);
+			});
+			let para_id = i;
+
+			// fill corresponding storage items for inclusion
+			let candidate_hash = CandidateHash(H256::from_low_u64_le(i as u64));
+			let candidate_availability = candidate_availability_mock::<T>(i, candidate_hash);
+			// TODO notes: commitments does not include any data that would lead to heavy code
+			// paths in `enact_candidate`. But enact_candidates does return a weight so maybe
+			// that should be used.
+			let commitments = CandidateCommitments::<u32>::default();
+			let para_id = ParaId::from(i as u32);
+			crate::inclusion::PendingAvailability::<T>::insert(para_id, candidate_availability);
+			crate::inclusion::PendingAvailabilityCommitments::<T>::insert(&para_id, commitments);
+		} else {
+			bitfields.push(false)
+		}
+	}
+
+	bitfields
+}
+
 benchmarks! {
 	enter_max_disputed {
 		let config = crate::configuration::Pallet::<T>::config();
@@ -75,7 +111,10 @@ benchmarks! {
 		let max_candidates = max_cores; // assuming we can only have 1 candidate per core. TODO check if this is ok
 		let max_statements = max_validators;
 		let byzantine_statement_thresh = max_statements / 3;
-		let disputed = max_candidates / 2; // half of candidates are disputed.
+		let disputed = max_candidates / 3; // half of candidates are disputed.
+		let available = max_candidates / 3;
+
+		let keystore: SyncCryptoStorePtr = Arc::new(KeyStore::new());
 
 		let header = T::Header::new(
 			One::one(),			// number
@@ -115,7 +154,6 @@ benchmarks! {
 			1, // session index
 			validators_public.clone(), // validators
 			None, // queued - when this is None validators are considered queued
-			// Some(validators_public) // queued
 		);
 
 
@@ -123,9 +161,8 @@ benchmarks! {
 		frame_system::Pallet::<T>::set_parent_hash(header.hash());
 
 		// setup at session change.
-		assert_eq!(crate::scheduler::AvailabilityCores::<T>::get().iter().count(), max_cores as usize);
-		assert_eq!(crate::scheduler::ValidatorGroups::<T>::get().iter().count(), max_cores as usize);
-
+		assert_eq!(crate::scheduler::AvailabilityCores::<T>::get().len(), max_cores as usize);
+		assert_eq!(crate::scheduler::ValidatorGroups::<T>::get().len(), max_cores as usize);
 
 		// assert the current session is 0.
 		let current_session = 1;
@@ -143,11 +180,92 @@ benchmarks! {
 			})
 			.collect::<Vec<_>>();
 
+		let availability_bitvec= availability_bitvec::<T>(max_cores, available);
+		let signing_context = SigningContext { parent_hash: header.hash(), session_index: 1 };
 
-		// TODO
+		let bitfields: Vec<_> = validators_shuffled.iter().enumerate().map(|(i, (public, pair))| {
+			let sig = futures::executor::block_on(Signed::sign(
+				&keystore,
+				availability_bitvec.clone(),
+				&signing_context,
+				ValidatorIndex(i as u32),
+				public,
+			))
+			.unwrap()
+			.unwrap();
+
+			// Signed::new(
+			// 	availability_bitvec.clone(),
+			// 	ValidatorIndex(i as u32),
+			// 	sig,
+			// 	&signing_context,
+			// 	public,
+			// )
+		})
+		.collect();
+
+		let backed_candidates = (available..disputed).map(|seed| {
+			// setup scheduled cores to go with backed candidate
+			let para_id = ParaId::from(seed as u32);
+			let collator_pair = <CollatorId as CryptoType>::Pair::generate().0;
+
+			let relay_parent = header.hash();
+			let persisted_validation_data_hash = Default::default();
+			let pov_hash = Default::default();
+			let validation_code_hash = Default::default();
+			let signature = collator_pair.sign(&collator_signature_payload(
+				&relay_parent,
+				&para_id,
+				&persisted_validation_data_hash,
+				&pov_hash,
+				&validation_code_hash,
+			));
+
+			// setup scheduled cores to go with backed candidate
+			crate::scheduler::Scheduled::<T>::append(crate::scheduler::CoreAssignment {
+				core: CoreIndex(seed),
+				para_id,
+				kind: crate::scheduler::AssignmentKind::Parachain,
+				group_idx: GroupIndex::from(seed),
+			});
+
+			let mut past_code_meta = crate::paras::ParaPastCodeMeta::<T::BlockNumber>::default();
+			past_code_meta.note_replacement(0u32.into(), 0u32.into());
+			// Insert ParaPastCodeMeta into `PastCodeMeta` for this para_id
+			crate::paras::PastCodeMeta::<T>::insert(&para_id, past_code_meta);
+			crate::paras::CurrentCodeHash::<T>::insert(&para_id, validation_code_hash.clone());
+			let head_data: HeadData = Default::default();
+
+			BackedCandidate::<T::Hash> {
+				candidate: CommittedCandidateReceipt::<T::Hash> {
+					descriptor: CandidateDescriptor::<T::Hash> {
+						para_id: para_id,
+						relay_parent: relay_parent,
+						collator: collator_pair.public(),
+						persisted_validation_data_hash: persisted_validation_data_hash,
+						pov_hash: pov_hash,
+						erasure_root: Default::default(),
+						signature: signature,
+						para_head: head_data.hash(),
+						validation_code_hash: validation_code_hash,
+					},
+					commitments: CandidateCommitments::<u32> {
+						upward_messages: Vec::new(),
+						horizontal_messages: Vec::new(),
+						new_validation_code: None,
+						head_data: head_data, // HeadData
+						processed_downward_messages: 0,
+						hrmp_watermark: 1u32,
+					},
+				},
+				validity_votes: Vec::new(),
+				validator_indices: BitVec::new(),
+			}
+		}).collect::<Vec<_>>();
+
 		// add logic to not dispute backed candidates
 		let mut spam_count = 0;
-		let disputes = (0..disputed).map(|seed| {
+		let disputes = (disputed..max_candidates).map(|seed| {
 			let candidate_hash = CandidateHash(H256::from_low_u64_le(seed as u64));
 
 			// fill corresponding storage items for inclusion that will be `taken` when `collect_disputed`
@@ -204,71 +322,6 @@ benchmarks! {
 
 		}).collect::<Vec<_>>();
 
-		let backed_candidates = (disputed..max_candidates).map(|seed| {
-			// TODO make sure this is added to scheduler::Scheduled
-
-			// <scheduler::Pallet<T>>::scheduled()
-
-
-
-			// setup scheduled cores to go with backed candidate
-			//
-			let para_id = ParaId::from(seed as u32);
-			let collator_pair = <CollatorId as CryptoType>::Pair::generate().0;
-
-			let relay_parent = header.hash();
-			let persisted_validation_data_hash = Default::default();
-			let pov_hash = Default::default();
-			let validation_code_hash = Default::default();
-			let signature = collator_pair.sign(&collator_signature_payload(
-				&relay_parent,
-				&para_id,
-				&persisted_validation_data_hash,
-				&pov_hash,
-				&validation_code_hash,
-			));
-
-			crate::scheduler::Scheduled::<T>::append(crate::scheduler::CoreAssignment {
-				core: CoreIndex(seed),
-				para_id,
-				kind: crate::scheduler::AssignmentKind::Parachain,
-				group_idx: GroupIndex::from(seed),
-			});
-
-			let mut past_code_meta = crate::paras::ParaPastCodeMeta::<T::BlockNumber>::default();
-			past_code_meta.note_replacement(0u32.into(), 0u32.into());
-			// Insert ParaPastCodeMeta into `PastCodeMeta` for this para_id
-			crate::paras::PastCodeMeta::<T>::insert(&para_id, past_code_meta);
-			crate::paras::CurrentCodeHash::<T>::insert(&para_id, validation_code_hash.clone());
-			let head_data: HeadData = Default::default();
-
-			BackedCandidate::<T::Hash> {
-				candidate: CommittedCandidateReceipt::<T::Hash> {
-					descriptor: CandidateDescriptor::<T::Hash> {
-						para_id: para_id,
-						relay_parent: relay_parent,
-						collator: collator_pair.public(),
-						persisted_validation_data_hash: persisted_validation_data_hash,
-						pov_hash: pov_hash,
-						erasure_root: Default::default(),
-						signature: signature,
-						para_head: head_data.hash(),
-						validation_code_hash: validation_code_hash,
-					},
-					commitments: CandidateCommitments::<u32> {
-						upward_messages: Vec::new(),
-						horizontal_messages: Vec::new(),
-						new_validation_code: None,
-						head_data: head_data, // HeadData
-						processed_downward_messages: 0,
-						hrmp_watermark: 1u32,
-					},
-				},
-				validity_votes: Vec::new(),
-				validator_indices: BitVec::new(),
-			}
-		}).collect::<Vec<_>>();
-
 
 		// schedule free cores - takes `just_freed_cores`
 		// ParathreadClaimIndex -> for now ignoring this, assuming no parathreads
@@ -292,15 +345,16 @@ benchmarks! {
 		println!("fA");
 		assert_eq!(
 			crate::inclusion::PendingAvailabilityCommitments::<T>::iter().count(),
-			disputed as usize
+			(disputed + available) as usize
 		);
 		println!("fB");
 		assert_eq!(
 			crate::inclusion::PendingAvailability::<T>::iter().count(),
-			disputed as usize
+			(disputed + available) as usize
 		);
 
 		let data = ParachainsInherentData {
+			// bitfields: bitfields, // TODO
 			bitfields: Default::default(), // TODO
 			backed_candidates: backed_candidates,
 			disputes, // Vec<DisputeStatementSet>
