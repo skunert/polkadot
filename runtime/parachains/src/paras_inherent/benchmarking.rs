@@ -26,8 +26,9 @@ use primitives::v1::{
 	Id as ParaId, InvalidDisputeStatementKind, Signed, SigningContext, UncheckedSigned,
 	ValidationCodeHash, ValidatorId, ValidatorIndex,
 };
+use sc_keystore::LocalKeystore;
 use sp_core::{crypto::CryptoType, Pair, H256};
-use sp_keystore::{testing::KeyStore, SyncCryptoStorePtr};
+use sp_keystore::{testing::KeyStore, SyncCryptoStore, SyncCryptoStorePtr};
 use sp_runtime::traits::{One, Zero};
 use sp_std::sync::Arc;
 use std::collections::HashMap;
@@ -83,21 +84,27 @@ fn availability_bitvec<T: Config>(cores: u32, available: u32) -> AvailabilityBit
 			});
 
 			// fill corresponding storage items for inclusion
-			let candidate_hash = CandidateHash(H256::from_low_u64_le(i as u64));
-			let candidate_availability = candidate_availability_mock::<T>(i, candidate_hash);
-			// TODO notes: commitments does not include any data that would lead to heavy code
-			// paths in `enact_candidate`. But enact_candidates does return a weight so maybe
-			// that should be used.
-			let commitments = CandidateCommitments::<u32>::default();
-			let para_id = ParaId::from(i as u32);
-			crate::inclusion::PendingAvailability::<T>::insert(para_id, candidate_availability);
-			crate::inclusion::PendingAvailabilityCommitments::<T>::insert(&para_id, commitments);
+			let _ = add_availability::<T>(i);
 		} else {
 			bitfields.push(false)
 		}
 	}
 
 	bitfields.into()
+}
+
+fn add_availability<T: Config>(seed: u32) -> CandidateHash {
+	let candidate_hash = CandidateHash(H256::from_low_u64_le(seed as u64));
+	let candidate_availability = candidate_availability_mock::<T>(seed, candidate_hash);
+	// TODO notes: commitments does not include any data that would lead to heavy code
+	// paths in `enact_candidate`. But enact_candidates does return a weight so maybe
+	// that should be used. (Relevant for when bitfields indicate a candidate is available)
+	let commitments = CandidateCommitments::<u32>::default();
+	let para_id = ParaId::from(seed);
+	crate::inclusion::PendingAvailability::<T>::insert(para_id, candidate_availability);
+	crate::inclusion::PendingAvailabilityCommitments::<T>::insert(&para_id, commitments);
+
+	candidate_hash
 }
 
 benchmarks! {
@@ -113,7 +120,8 @@ benchmarks! {
 		let available = max_candidates / 3;
 
 		// let keystore: SyncCryptoStorePtr = Arc::new(KeyStore::new());
-		let keystore: SyncCryptoStorePtr = LocalKeystore::in_memory();
+		// let keystore: SyncCryptoStorePtr = LocalKeystore::in_memory();
+		let keystore: SyncCryptoStorePtr = Arc::new(LocalKeystore::in_memory());
 		let header = T::Header::new(
 			One::one(),			// number
 			Default::default(), //	extrinsics_root,
@@ -132,24 +140,7 @@ benchmarks! {
 
 
 		let validator_pairs = (0..max_validators).map(|i| {
-				// sets up a keystore with the given keyring accounts.
-			// async fn make_keystore(accounts: &[Sr25519Keyring]) -> LocalKeystore {
-
-
-				// for s in accounts.iter().copied().map(|k| k.to_seed()) {
-
-			// 	}
-
-			// 	store
-			// }
-
-
-			let (s, pair) = <ValidatorId as CryptoType>::Pair::generate(&*keystore);
-			keystore
-				.sr25519_generate_new(ASSIGNMENT_KEY_TYPE_ID, Some(s.as_str()))
-				.await
-				.unwrap();
-
+			let (pair, seed) = <ValidatorId as CryptoType>::Pair::generate();
 			let account: T::AccountId = account("validator", i, i);
 			(account, pair)
 		}).collect::<Vec<_>>();
@@ -197,25 +188,25 @@ benchmarks! {
 		let availability_bitvec= availability_bitvec::<T>(max_cores, available);
 		let signing_context = SigningContext { parent_hash: header.hash(), session_index: 1 };
 
-		let bitfields: Vec<_> = validators_shuffled.iter().enumerate().map(|(i, (public, pair))| {
-			let x = futures::executor::block_on(Signed::<AvailabilityBitfield>::sign(
-				&keystore,
-				availability_bitvec.clone(),
-				&signing_context,
-				ValidatorIndex(i as u32),
-				public,
-			));
+		// let bitfields: Vec<_> = validators_shuffled.iter().enumerate().map(|(i, (public, pair))| {
+		// let bitfields: Vec<_> = validators_shuffled.iter().enumerate().map(|(i, public)| {
+		// 	let x = futures::executor::block_on(Signed::<AvailabilityBitfield>::sign(
+		// 		&keystore,
+		// 		availability_bitvec.clone(),
+		// 		&signing_context,
+		// 		ValidatorIndex(i as u32),
+		// 		public,
+		// 	));
 
-			println!("x debug {:?}", x);
+		// 	println!("x debug {:?}", x);
 
-			x
-			.unwrap()
-			.unwrap()
-		})
-		.collect();
+		// 	x
+		// 	.unwrap()
+		// 	.unwrap()
+		// })
+		// .collect();
 
 		let backed_candidates = (available..disputed).map(|seed| {
-			// setup scheduled cores to go with backed candidate
 			let para_id = ParaId::from(seed as u32);
 			let collator_pair = <CollatorId as CryptoType>::Pair::generate().0;
 
@@ -276,18 +267,9 @@ benchmarks! {
 		// add logic to not dispute backed candidates
 		let mut spam_count = 0;
 		let disputes = (disputed..max_candidates).map(|seed| {
-			let candidate_hash = CandidateHash(H256::from_low_u64_le(seed as u64));
-
 			// fill corresponding storage items for inclusion that will be `taken` when `collect_disputed`
 			// is called.
-			let candidate_availability = candidate_availability_mock::<T>(seed, candidate_hash);
-			let commitments = CandidateCommitments::<u32>::default();
-			let para_id = ParaId::from(seed as u32);
-			crate::inclusion::PendingAvailability::<T>::insert(
-				para_id, candidate_availability
-			);
-			crate::inclusion::PendingAvailabilityCommitments::<T>::insert(&para_id, commitments);
-
+			let candidate_hash = add_availability::<T>(seed);
 			// create the set of statements to dispute the above candidate hash.
 			let statement_range = if spam_count < config.dispute_max_spam_slots {
 				// if we have not hit the spam dispute statement limit, only make up to the byzantine
@@ -304,16 +286,13 @@ benchmarks! {
 			};
 			let statements = statement_range.map(|validator_index| {
 				let validator_pair = &validators_shuffled.get(validator_index as usize).unwrap().1;
-				let signing_payload = ExplicitDisputeStatement {
-					valid: false,
-					candidate_hash: candidate_hash.clone(),
-					session: current_session,
-				}
-				.signing_payload();
-				let statement_sig = validator_pair.sign(&signing_payload);
+
+				let dispute_statement = DisputeStatement::Invalid(InvalidDisputeStatementKind::Explicit);
+				let data = dispute_statement.payload_data(candidate_hash.clone(), current_session);
+				let statement_sig = validator_pair.sign(&data);
 
 				(
-					DisputeStatement::Invalid(InvalidDisputeStatementKind::Explicit),
+					dispute_statement,
 					ValidatorIndex(validator_index),
 					statement_sig,
 				)
@@ -333,18 +312,10 @@ benchmarks! {
 		}).collect::<Vec<_>>();
 
 
-		// schedule free cores - takes `just_freed_cores`
-		// ParathreadClaimIndex -> for now ignoring this, assuming no parathreads
-		// <paras::Pallet<T>>::parachains();
-
-
-		// should contain max_core parachains for worst case
-		// <paras::Pallet<T>>::parachains()
-
 		// ensure availability cores are scheduled for backed candidates.
 		assert_eq!(
 			crate::scheduler::Scheduled::<T>::get().iter().count(),
-			(max_candidates - disputed) as usize
+			(disputed - available) as usize
 		);
 
 		assert_eq!(
@@ -355,12 +326,14 @@ benchmarks! {
 		println!("fA");
 		assert_eq!(
 			crate::inclusion::PendingAvailabilityCommitments::<T>::iter().count(),
-			(disputed + available) as usize
+			// (disputed + available) as usize
+			(max_candidates - disputed + available) as usize
 		);
 		println!("fB");
 		assert_eq!(
 			crate::inclusion::PendingAvailability::<T>::iter().count(),
-			(disputed + available) as usize
+			// (disputed + available) as usize
+			(max_candidates - disputed + available) as usize
 		);
 
 		let data = ParachainsInherentData {
