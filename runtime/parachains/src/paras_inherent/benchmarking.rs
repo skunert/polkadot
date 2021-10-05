@@ -200,7 +200,7 @@ benchmarks! {
 		let backed_candidates = (available..disputed).map(|seed| {
 			let _ = add_availability::<T>(
 				seed,
-				availability_bitvec.clone()
+				availability_bitvec.0.clone()
 			);
 
 			let para_id = ParaId::from(seed as u32);
@@ -266,7 +266,7 @@ benchmarks! {
 			// is called.
 			let candidate_hash = add_availability::<T>(
 				seed,
-				availability_bitvec.clone()
+				availability_bitvec.0.clone()
 			);
 			// create the set of statements to dispute the above candidate hash.
 			let statement_range = if spam_count < config.dispute_max_spam_slots {
