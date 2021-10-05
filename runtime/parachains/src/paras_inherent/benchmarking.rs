@@ -16,7 +16,7 @@
 
 use super::*;
 use crate::inclusion::CandidatePendingAvailability;
-use bitvec::vec::BitVec;
+use bitvec::{order::Lsb0 as BitOrderLsb0, vec::BitVec};
 use frame_benchmarking::{account, benchmarks, impl_benchmark_test_suite};
 use frame_system::RawOrigin;
 use primitives::v1::{
@@ -51,6 +51,7 @@ fn run_to_block<T: Config>(to: u32) {
 fn candidate_availability_mock<T: Config>(
 	seed: u32,
 	candidate_hash: CandidateHash,
+	availability_votes: BitVec<BitOrderLsb0, u8>,
 ) -> CandidatePendingAvailability<T::Hash, T::BlockNumber> {
 	// TODO can make benchmark gated function for making this struct inclusion so fields don't
 	// need to be pub(crate)
@@ -58,7 +59,7 @@ fn candidate_availability_mock<T: Config>(
 		core: seed.into(), // CoreIndex - we need these to correspond to freed cores
 		hash: candidate_hash,
 		descriptor: Default::default(),
-		availability_votes: Default::default(),
+		availability_votes,
 		backers: Default::default(),
 		relay_parent_number: Zero::zero(),
 		backed_in_number: One::one(),
@@ -79,8 +80,7 @@ fn availability_bitvec<T: Config>(cores: u32, available: u32) -> AvailabilityBit
 				cores[i as usize] = Some(CoreOccupied::Parachain);
 			});
 
-			// fill corresponding storage items for inclusion
-			let _ = add_availability::<T>(i);
+		// fill corresponding storage items for inclusion
 		} else {
 			bitfields.push(false)
 		}
@@ -89,9 +89,13 @@ fn availability_bitvec<T: Config>(cores: u32, available: u32) -> AvailabilityBit
 	bitfields.into()
 }
 
-fn add_availability<T: Config>(seed: u32) -> CandidateHash {
+fn add_availability<T: Config>(
+	seed: u32,
+	availability_votes: BitVec<BitOrderLsb0, u8>,
+) -> CandidateHash {
 	let candidate_hash = CandidateHash(H256::from_low_u64_le(seed as u64));
-	let candidate_availability = candidate_availability_mock::<T>(seed, candidate_hash);
+	let candidate_availability =
+		candidate_availability_mock::<T>(seed, candidate_hash, availability_votes);
 	// TODO notes: commitments does not include any data that would lead to heavy code
 	// paths in `enact_candidate`. But enact_candidates does return a weight so maybe
 	// that should be used. (Relevant for when bitfields indicate a candidate is available)
@@ -194,9 +198,13 @@ benchmarks! {
 		.collect();
 
 		let backed_candidates = (available..disputed).map(|seed| {
+			let _ = add_availability::<T>(
+				seed,
+				availability_bitvec.clone()
+			);
+
 			let para_id = ParaId::from(seed as u32);
 			let collator_pair = <CollatorId as CryptoType>::Pair::generate().0;
-
 			let relay_parent = header.hash();
 			let persisted_validation_data_hash = Default::default();
 			let pov_hash = Default::default();
@@ -256,7 +264,10 @@ benchmarks! {
 		let disputes = (disputed..max_candidates).map(|seed| {
 			// fill corresponding storage items for inclusion that will be `taken` when `collect_disputed`
 			// is called.
-			let candidate_hash = add_availability::<T>(seed);
+			let candidate_hash = add_availability::<T>(
+				seed,
+				availability_bitvec.clone()
+			);
 			// create the set of statements to dispute the above candidate hash.
 			let statement_range = if spam_count < config.dispute_max_spam_slots {
 				// if we have not hit the spam dispute statement limit, only make up to the byzantine
