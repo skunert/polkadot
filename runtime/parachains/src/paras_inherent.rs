@@ -320,7 +320,7 @@ pub mod pallet {
 ///
 /// If any of those is not passed, the bitfield is dropped.
 fn filter_bitfields<T: Config>(
-	mut unchecked_bitfields: UncheckedSignedAvailabilityBitfields
+	mut unchecked_bitfields: UncheckedSignedAvailabilityBitfields,
 	disputed_bits: DisputedBitfield,
 	expected_bits: usize,
 	parent_hash: T::Hash,
