@@ -325,11 +325,6 @@ impl<T: Config> Pallet<T> {
 					.as_mut()
 					.expect("validator bitfields checked not to contain bits corresponding to unoccupied cores; qed");
 
-				println!("pending_availability {:?}", pending_availability);
-				println!(
-					"pending_availability {:?}",
-					pending_availability.unwrap().availability_votes
-				);
 				// defensive check - this is constructed by loading the availability bitfield record,
 				// which is always `Some` if the core is occupied - that's why we're here.
 				let val_idx = signed_bitfield.validator_index().0 as usize;

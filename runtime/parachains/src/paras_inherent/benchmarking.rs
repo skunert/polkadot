@@ -23,7 +23,8 @@ use primitives::v1::{
 	collator_signature_payload, AvailabilityBitfield, CandidateCommitments, CandidateDescriptor,
 	CandidateHash, CollatorId, CommittedCandidateReceipt, CoreIndex, CoreOccupied,
 	DisputeStatement, DisputeStatementSet, GroupIndex, HeadData, Id as ParaId,
-	InvalidDisputeStatementKind, SigningContext, UncheckedSigned, ValidatorId, ValidatorIndex,
+	InvalidDisputeStatementKind, PersistedValidationData, SigningContext, UncheckedSigned,
+	ValidatorId, ValidatorIndex,
 };
 use sp_core::{crypto::CryptoType, Pair, H256};
 use sp_runtime::traits::{One, Zero};
@@ -67,7 +68,11 @@ fn candidate_availability_mock<T: Config>(
 	}
 }
 
-fn availability_bitvec<T: Config>(cores: u32, available: u32) -> AvailabilityBitfield {
+fn availability_bitvec<T: Config>(
+	cores: u32,
+	available: u32,
+	_validators_per_core: u32,
+) -> AvailabilityBitfield {
 	let mut bitfields = bitvec::bitvec![bitvec::order::Lsb0, u8; 0; 0];
 
 	for i in 0..cores {
@@ -75,16 +80,27 @@ fn availability_bitvec<T: Config>(cores: u32, available: u32) -> AvailabilityBit
 		if i < available {
 			bitfields.push(true);
 
-			// make sure the core is occupied so the lookup works
-			crate::scheduler::AvailabilityCores::<T>::mutate(|cores| {
-				cores[i as usize] = Some(CoreOccupied::Parachain);
-			});
+		// make sure the core is occupied so the lookup works
+		// crate::scheduler::AvailabilityCores::<T>::mutate(|cores| {
+		// 	cores[i as usize] = Some(CoreOccupied::Parachain);
+		// });
 
 		// fill corresponding storage items for inclusion
 		} else {
 			bitfields.push(false)
 		}
+
+		crate::scheduler::AvailabilityCores::<T>::mutate(|cores| {
+			// TODO this could be be one op where we set all the entries
+			cores[i as usize] = Some(CoreOccupied::Parachain)
+		});
 	}
+
+	// we always assume the core is occupied.
+	// crate::scheduler::AvailabilityCores::<T>::mutate(|cores| {
+	// 	// TODO this could be be one op where we set all the entries
+	// 	cores.iter().map(|_| Some(CoreOccupied::Parachain)).collect()
+	// });
 
 	bitfields.into()
 }
@@ -121,7 +137,7 @@ benchmarks! {
 
 		let header = T::Header::new(
 			One::one(),			// number
-			Default::default(), //	extrinsics_root,
+			Default::default(), // extrinsics_root,
 			Default::default(), // storage_root,
 			Default::default(), // parent_hash,
 			Default::default(), // digest,
@@ -182,7 +198,10 @@ benchmarks! {
 			})
 			.collect::<Vec<_>>();
 
-		let availability_bitvec = availability_bitvec::<T>(max_cores, available);
+		// This is not technically correct because we are saying every validator has voted a core available, but just doing for simplicity.
+		let validator_availability_votes = bitvec::bitvec![bitvec::order::Lsb0, u8; 1; max_validators as usize];
+
+		let availability_bitvec = availability_bitvec::<T>(max_cores, available, validators_per_core);
 		let signing_context = SigningContext { parent_hash: header.hash(), session_index: 1 };
 
 		let bitfields: Vec<_> = validators_shuffled.iter().enumerate().map(|(i, (public, pair))| {
@@ -197,16 +216,29 @@ benchmarks! {
 		})
 		.collect();
 
-		let backed_candidates = (available..disputed).map(|seed| {
+		let backed_candidates = (0..available).map(|seed| {
 			let _ = add_availability::<T>(
 				seed,
-				availability_bitvec.0.clone()
+				validator_availability_votes.clone(),
 			);
 
 			let para_id = ParaId::from(seed as u32);
 			let collator_pair = <CollatorId as CryptoType>::Pair::generate().0;
 			let relay_parent = header.hash();
-			let persisted_validation_data_hash = Default::default();
+			let head_data: HeadData = Default::default();
+			let persisted_validation_data_hash = PersistedValidationData::<H256> {
+				parent_head: head_data, // dummy parent_head
+				relay_parent_number: *header.number(),
+				relay_parent_storage_root: Default::default(), // equivalent to header.storage_root,
+				max_pov_size: config.max_pov_size,
+			}
+			.hash();
+			// let persisted_validation_data_hash = crate::util::make_persisted_validation_data::<T>(
+			// 	para_id,
+			// 	*header.number(),
+			// 	Default::default(), // equivalent to header.storage_root,
+			// )
+			// .unwrap()
 			let pov_hash = Default::default();
 			let validation_code_hash = Default::default();
 			let signature = collator_pair.sign(&collator_signature_payload(
@@ -230,7 +262,6 @@ benchmarks! {
 			// Insert ParaPastCodeMeta into `PastCodeMeta` for this para_id
 			crate::paras::PastCodeMeta::<T>::insert(&para_id, past_code_meta);
 			crate::paras::CurrentCodeHash::<T>::insert(&para_id, validation_code_hash.clone());
-			let head_data: HeadData = Default::default();
 
 			BackedCandidate::<T::Hash> {
 				candidate: CommittedCandidateReceipt::<T::Hash> {
@@ -261,12 +292,12 @@ benchmarks! {
 
 		// add logic to not dispute backed candidates
 		let mut spam_count = 0;
-		let disputes = (disputed..max_candidates).map(|seed| {
+		let disputes = (available..max_candidates).map(|seed| {
 			// fill corresponding storage items for inclusion that will be `taken` when `collect_disputed`
 			// is called.
 			let candidate_hash = add_availability::<T>(
 				seed,
-				availability_bitvec.0.clone()
+				validator_availability_votes.clone(),
 			);
 			// create the set of statements to dispute the above candidate hash.
 			let statement_range = if spam_count < config.dispute_max_spam_slots {
@@ -313,7 +344,7 @@ benchmarks! {
 		// ensure availability cores are scheduled for backed candidates.
 		assert_eq!(
 			crate::scheduler::Scheduled::<T>::get().iter().count(),
-			(disputed - available) as usize
+			disputed as usize
 		);
 
 		assert_eq!(
@@ -325,13 +356,13 @@ benchmarks! {
 		assert_eq!(
 			crate::inclusion::PendingAvailabilityCommitments::<T>::iter().count(),
 			// (disputed + available) as usize
-			(max_candidates - disputed + available) as usize
+			(max_candidates) as usize
 		);
 		println!("fB");
 		assert_eq!(
 			crate::inclusion::PendingAvailability::<T>::iter().count(),
 			// (disputed + available) as usize
-			(max_candidates - disputed + available) as usize
+			(max_candidates) as usize
 		);
 
 		let data = ParachainsInherentData {
