@@ -71,7 +71,7 @@ use futures::{channel::oneshot, future::BoxFuture, select, Future, FutureExt, St
 use lru::LruCache;
 
 use client::{BlockImportNotification, BlockchainEvents, FinalityNotification};
-use polkadot_primitives::v2::{Block, BlockNumber, Hash, Header};
+use polkadot_primitives::v2::{Block, BlockNumber, Hash};
 
 use polkadot_node_subsystem_types::messages::{
 	ApprovalDistributionMessage, ApprovalVotingMessage, AvailabilityDistributionMessage,
@@ -79,12 +79,13 @@ use polkadot_node_subsystem_types::messages::{
 	BitfieldSigningMessage, CandidateBackingMessage, CandidateValidationMessage, ChainApiMessage,
 	ChainSelectionMessage, CollationGenerationMessage, CollatorProtocolMessage,
 	DisputeCoordinatorMessage, DisputeDistributionMessage, GossipSupportMessage,
-	NetworkBridgeMessage, ProvisionerMessage, PvfCheckerMessage, RuntimeApiMessage,
-	StatementDistributionMessage,
+	NetworkBridgeRxMessage, NetworkBridgeTxMessage, ProvisionerMessage, PvfCheckerMessage,
+	RuntimeApiMessage, StatementDistributionMessage,
 };
 pub use polkadot_node_subsystem_types::{
 	errors::{SubsystemError, SubsystemResult},
 	jaeger, ActivatedLeaf, ActiveLeavesUpdate, LeafStatus, OverseerSignal,
+	RuntimeApiSubsystemClient,
 };
 
 pub mod metrics;
@@ -93,9 +94,6 @@ pub use self::metrics::Metrics as OverseerMetrics;
 /// A dummy subsystem, mostly useful for placeholders and tests.
 pub mod dummy;
 pub use self::dummy::DummySubsystem;
-
-mod runtime_client;
-pub use runtime_client::RuntimeApiSubsystemClient;
 
 pub use polkadot_node_metrics::{
 	metrics::{prometheus, Metrics as MetricsTrait},
@@ -107,9 +105,9 @@ use parity_util_mem::MemoryAllocationTracker;
 pub use orchestra as gen;
 pub use orchestra::{
 	contextbounds, orchestra, subsystem, FromOrchestra, MapSubsystem, MessagePacket,
-	SignalsReceived, Spawner, Subsystem, SubsystemContext, SubsystemIncomingMessages,
-	SubsystemInstance, SubsystemMeterReadouts, SubsystemMeters, SubsystemSender, TimeoutExt,
-	ToOrchestra,
+	OrchestraError as OverseerError, SignalsReceived, Spawner, Subsystem, SubsystemContext,
+	SubsystemIncomingMessages, SubsystemInstance, SubsystemMeterReadouts, SubsystemMeters,
+	SubsystemSender, TimeoutExt, ToOrchestra,
 };
 
 /// Store 2 days worth of blocks, not accounting for forks,
@@ -253,12 +251,6 @@ pub struct BlockInfo {
 	pub number: BlockNumber,
 }
 
-impl From<Header> for BlockInfo {
-	fn from(h: Header) -> Self {
-		BlockInfo { hash: h.hash(), parent_hash: h.parent_hash, number: h.number }
-	}
-}
-
 impl From<BlockImportNotification<Block>> for BlockInfo {
 	fn from(n: BlockImportNotification<Block>) -> Self {
 		BlockInfo { hash: n.hash, parent_hash: n.header.parent_hash, number: n.header.number }
@@ -389,7 +381,7 @@ pub async fn forward_events<P: BlockchainEvents<Block>>(client: Arc<P>, mut hand
 /// # };
 /// # use polkadot_node_subsystem_types::messages::{
 /// # 	CandidateValidationMessage, CandidateBackingMessage,
-/// # 	NetworkBridgeMessage,
+/// # 	NetworkBridgeTxMessage,
 /// # };
 ///
 /// struct ValidationSubsystem;
@@ -480,7 +472,7 @@ pub struct Overseer<SupportsParachains> {
 	candidate_backing: CandidateBacking,
 
 	#[subsystem(StatementDistributionMessage, sends: [
-		NetworkBridgeMessage,
+		NetworkBridgeTxMessage,
 		CandidateBackingMessage,
 		RuntimeApiMessage,
 	])]
@@ -491,12 +483,12 @@ pub struct Overseer<SupportsParachains> {
 		AvailabilityRecoveryMessage,
 		ChainApiMessage,
 		RuntimeApiMessage,
-		NetworkBridgeMessage,
+		NetworkBridgeTxMessage,
 	])]
 	availability_distribution: AvailabilityDistribution,
 
 	#[subsystem(AvailabilityRecoveryMessage, sends: [
-		NetworkBridgeMessage,
+		NetworkBridgeTxMessage,
 		RuntimeApiMessage,
 		AvailabilityStoreMessage,
 	])]
@@ -511,7 +503,7 @@ pub struct Overseer<SupportsParachains> {
 
 	#[subsystem(BitfieldDistributionMessage, sends: [
 		RuntimeApiMessage,
-		NetworkBridgeMessage,
+		NetworkBridgeTxMessage,
 		ProvisionerMessage,
 	])]
 	bitfield_distribution: BitfieldDistribution,
@@ -533,7 +525,7 @@ pub struct Overseer<SupportsParachains> {
 	])]
 	availability_store: AvailabilityStore,
 
-	#[subsystem(NetworkBridgeMessage, sends: [
+	#[subsystem(NetworkBridgeRxMessage, sends: [
 		BitfieldDistributionMessage,
 		StatementDistributionMessage,
 		ApprovalDistributionMessage,
@@ -542,7 +534,10 @@ pub struct Overseer<SupportsParachains> {
 		CollationGenerationMessage,
 		CollatorProtocolMessage,
 	])]
-	network_bridge: NetworkBridge,
+	network_bridge_rx: NetworkBridgeRx,
+
+	#[subsystem(NetworkBridgeTxMessage, sends: [])]
+	network_bridge_tx: NetworkBridgeTx,
 
 	#[subsystem(blocking, ChainApiMessage, sends: [])]
 	chain_api: ChainApi,
@@ -554,14 +549,14 @@ pub struct Overseer<SupportsParachains> {
 	collation_generation: CollationGeneration,
 
 	#[subsystem(CollatorProtocolMessage, sends: [
-		NetworkBridgeMessage,
+		NetworkBridgeTxMessage,
 		RuntimeApiMessage,
 		CandidateBackingMessage,
 	])]
 	collator_protocol: CollatorProtocol,
 
 	#[subsystem(ApprovalDistributionMessage, sends: [
-		NetworkBridgeMessage,
+		NetworkBridgeTxMessage,
 		ApprovalVotingMessage,
 	])]
 	approval_distribution: ApprovalDistribution,
@@ -578,7 +573,8 @@ pub struct Overseer<SupportsParachains> {
 	approval_voting: ApprovalVoting,
 
 	#[subsystem(GossipSupportMessage, sends: [
-		NetworkBridgeMessage,
+		NetworkBridgeTxMessage,
+		NetworkBridgeRxMessage, // TODO <https://github.com/paritytech/polkadot/issues/5626>
 		RuntimeApiMessage,
 		ChainSelectionMessage,
 	])]
@@ -597,7 +593,7 @@ pub struct Overseer<SupportsParachains> {
 	#[subsystem(DisputeDistributionMessage, sends: [
 		RuntimeApiMessage,
 		DisputeCoordinatorMessage,
-		NetworkBridgeMessage,
+		NetworkBridgeTxMessage,
 	])]
 	dispute_distribution: DisputeDistribution,
 
