@@ -71,7 +71,7 @@ use futures::{channel::oneshot, future::BoxFuture, select, Future, FutureExt, St
 use lru::LruCache;
 
 use client::{BlockImportNotification, BlockchainEvents, FinalityNotification};
-use polkadot_primitives::v2::{Block, BlockNumber, Hash};
+use polkadot_primitives::v2::{Block, BlockNumber, Hash, Header};
 
 use polkadot_node_subsystem_types::messages::{
 	ApprovalDistributionMessage, ApprovalVotingMessage, AvailabilityDistributionMessage,
@@ -249,6 +249,12 @@ pub struct BlockInfo {
 	pub parent_hash: Hash,
 	/// block's number.
 	pub number: BlockNumber,
+}
+
+impl From<Header> for BlockInfo {
+	fn from(header: Header) -> Self {
+		BlockInfo { hash: header.hash(), parent_hash: header.parent_hash, number: header.number }
+	}
 }
 
 impl From<BlockImportNotification<Block>> for BlockInfo {
