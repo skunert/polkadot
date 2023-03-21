@@ -5149,9 +5149,8 @@ dependencies = [
 
 [[package]]
 name = "orchestra"
-version = "0.0.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "17e7d5b6bb115db09390bed8842c94180893dd83df3dfce7354f2a2aa090a4ee"
+version = "0.2.0"
+source = "git+https://github.com/skunert/orchestra?branch=skunert/feature-guarded-subsystems#6ace3557c070dcfe487b81065185b036b24293c4"
 dependencies = [
  "async-trait",
  "dyn-clonable",
@@ -5159,16 +5158,15 @@ dependencies = [
  "futures-timer",
  "orchestra-proc-macro",
  "pin-project",
- "prioritized-metered-channel",
+ "prioritized-metered-channel 0.4.0",
  "thiserror",
  "tracing",
 ]
 
 [[package]]
 name = "orchestra-proc-macro"
-version = "0.0.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c2af4dabb2286b0be0e9711d2d24e25f6217048b71210cffd3daddc3b5c84e1f"
+version = "0.2.0"
+source = "git+https://github.com/skunert/orchestra?branch=skunert/feature-guarded-subsystems#6ace3557c070dcfe487b81065185b036b24293c4"
 dependencies = [
  "expander 0.0.6",
  "itertools",
@@ -7231,7 +7229,7 @@ dependencies = [
  "parity-scale-codec",
  "polkadot-primitives",
  "polkadot-test-service",
- "prioritized-metered-channel",
+ "prioritized-metered-channel 0.2.0",
  "prometheus-parse",
  "sc-cli",
  "sc-client-api",
@@ -7370,7 +7368,7 @@ dependencies = [
  "polkadot-overseer",
  "polkadot-primitives",
  "polkadot-primitives-test-helpers",
- "prioritized-metered-channel",
+ "prioritized-metered-channel 0.2.0",
  "rand 0.8.5",
  "sp-application-crypto",
  "sp-core",
@@ -7398,7 +7396,7 @@ dependencies = [
  "polkadot-node-subsystem-types",
  "polkadot-primitives",
  "polkadot-primitives-test-helpers",
- "prioritized-metered-channel",
+ "prioritized-metered-channel 0.2.0",
  "sc-client-api",
  "sp-api",
  "sp-core",
@@ -8208,6 +8206,22 @@ version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "382698e48a268c832d0b181ed438374a6bb708a82a8ca273bb0f61c74cf209c4"
 dependencies = [
+ "coarsetime",
+ "crossbeam-queue",
+ "derive_more",
+ "futures",
+ "futures-timer",
+ "nanorand",
+ "thiserror",
+ "tracing",
+]
+
+[[package]]
+name = "prioritized-metered-channel"
+version = "0.4.0"
+source = "git+https://github.com/skunert/orchestra?branch=skunert/feature-guarded-subsystems#6ace3557c070dcfe487b81065185b036b24293c4"
+dependencies = [
+ "async-channel",
  "coarsetime",
  "crossbeam-queue",
  "derive_more",
