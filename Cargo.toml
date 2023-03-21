@@ -227,6 +227,3 @@ conf-files = [
 
 [package.metadata.spellcheck]
 config = "./scripts/ci/gitlab/spellcheck.toml"
-
-[patch.crates-io]
-orchestra = {git = "https://github.com/skunert/orchestra", branch = "skunert/feature-guarded-subsystems"}
