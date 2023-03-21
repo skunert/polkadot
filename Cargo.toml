@@ -229,4 +229,4 @@ conf-files = [
 config = "./scripts/ci/gitlab/spellcheck.toml"
 
 [patch.crates-io]
-orchestra = {path = "../orchestra/orchestra"}
+orchestra = {git = "https://github.com/skunert/orchestra", branch = "skunert/feature-guarded-subsystems"}

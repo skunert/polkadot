@@ -5068,6 +5068,7 @@ dependencies = [
 [[package]]
 name = "orchestra"
 version = "0.2.0"
+source = "git+https://github.com/skunert/orchestra?branch=skunert/feature-guarded-subsystems#6ace3557c070dcfe487b81065185b036b24293c4"
 dependencies = [
  "async-trait",
  "dyn-clonable",
@@ -5075,7 +5076,7 @@ dependencies = [
  "futures-timer",
  "orchestra-proc-macro",
  "pin-project",
- "prioritized-metered-channel 0.4.0",
+ "prioritized-metered-channel 0.4.0 (git+https://github.com/skunert/orchestra?branch=skunert/feature-guarded-subsystems)",
  "thiserror",
  "tracing",
 ]
@@ -5083,6 +5084,7 @@ dependencies = [
 [[package]]
 name = "orchestra-proc-macro"
 version = "0.2.0"
+source = "git+https://github.com/skunert/orchestra?branch=skunert/feature-guarded-subsystems#6ace3557c070dcfe487b81065185b036b24293c4"
 dependencies = [
  "expander 0.0.6",
  "itertools",
@@ -8105,6 +8107,8 @@ dependencies = [
 [[package]]
 name = "prioritized-metered-channel"
 version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a3caef72a78ca8e77cbdfa87dd516ebb79d4cbe5b42e3b8435b463a8261339ff"
 dependencies = [
  "async-channel",
  "coarsetime",
@@ -8120,8 +8124,7 @@ dependencies = [
 [[package]]
 name = "prioritized-metered-channel"
 version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a3caef72a78ca8e77cbdfa87dd516ebb79d4cbe5b42e3b8435b463a8261339ff"
+source = "git+https://github.com/skunert/orchestra?branch=skunert/feature-guarded-subsystems#6ace3557c070dcfe487b81065185b036b24293c4"
 dependencies = [
  "async-channel",
  "coarsetime",
