@@ -59,6 +59,7 @@ where
 /// Create an overseer with all subsystem being `Sub`.
 ///
 /// Preferred way of initializing a dummy overseer for subsystem tests.
+#[cfg(feature = "full")]
 pub fn dummy_overseer_builder<Spawner, SupportsParachains>(
 	spawner: Spawner,
 	supports_parachains: SupportsParachains,
@@ -99,7 +100,33 @@ where
 	one_for_all_overseer_builder(spawner, supports_parachains, DummySubsystem, registry)
 }
 
+#[cfg(not(feature = "full"))]
+pub fn dummy_overseer_builder<Spawner, SupportsParachains>(
+	spawner: Spawner,
+	supports_parachains: SupportsParachains,
+	registry: Option<&Registry>,
+) -> Result<
+	InitializedOverseerBuilder<
+		SpawnGlue<Spawner>,
+		SupportsParachains,
+		DummySubsystem,
+		DummySubsystem,
+		DummySubsystem,
+		DummySubsystem,
+		DummySubsystem,
+		DummySubsystem,
+	>,
+	SubsystemError,
+>
+where
+	SpawnGlue<Spawner>: orchestra::Spawner + 'static,
+	SupportsParachains: HeadSupportsParachains,
+{
+	one_for_all_overseer_builder(spawner, supports_parachains, DummySubsystem, registry)
+}
+
 /// Create an overseer with all subsystem being `Sub`.
+#[cfg(feature = "full")]
 pub fn one_for_all_overseer_builder<Spawner, SupportsParachains, Sub>(
 	spawner: Spawner,
 	supports_parachains: SupportsParachains,
@@ -186,6 +213,56 @@ where
 		.dispute_coordinator(subsystem.clone())
 		.dispute_distribution(subsystem.clone())
 		.chain_selection(subsystem)
+		.activation_external_listeners(Default::default())
+		.span_per_active_leaf(Default::default())
+		.active_leaves(Default::default())
+		.known_leaves(LruCache::new(KNOWN_LEAVES_CACHE_SIZE))
+		.spawner(SpawnGlue(spawner))
+		.metrics(metrics)
+		.supports_parachains(supports_parachains);
+	Ok(builder)
+}
+
+/// Create an overseer with all subsystem being `Sub`.
+#[cfg(not(feature = "full"))]
+pub fn one_for_all_overseer_builder<Spawner, SupportsParachains, Sub>(
+	spawner: Spawner,
+	supports_parachains: SupportsParachains,
+	subsystem: Sub,
+	registry: Option<&Registry>,
+) -> Result<
+	InitializedOverseerBuilder<
+		SpawnGlue<Spawner>,
+		SupportsParachains,
+		Sub,
+		Sub,
+		Sub,
+		Sub,
+		Sub,
+		Sub,
+	>,
+	SubsystemError,
+>
+where
+	SpawnGlue<Spawner>: orchestra::Spawner + 'static,
+	SupportsParachains: HeadSupportsParachains,
+	Sub: Clone
+		+ Subsystem<OverseerSubsystemContext<AvailabilityRecoveryMessage>, SubsystemError>
+		+ Subsystem<OverseerSubsystemContext<CollationGenerationMessage>, SubsystemError>
+		+ Subsystem<OverseerSubsystemContext<CollatorProtocolMessage>, SubsystemError>
+		+ Subsystem<OverseerSubsystemContext<NetworkBridgeRxMessage>, SubsystemError>
+		+ Subsystem<OverseerSubsystemContext<NetworkBridgeTxMessage>, SubsystemError>
+		+ Subsystem<OverseerSubsystemContext<RuntimeApiMessage>, SubsystemError>,
+{
+	let metrics = <OverseerMetrics as MetricsTrait>::register(registry)?;
+
+	let builder = Overseer::builder()
+		.availability_recovery(subsystem.clone())
+		.collation_generation(subsystem.clone())
+		.collator_protocol(subsystem.clone())
+		.network_bridge_tx(subsystem.clone())
+		.network_bridge_rx(subsystem.clone())
+		.runtime_api(subsystem.clone())
 		.activation_external_listeners(Default::default())
 		.span_per_active_leaf(Default::default())
 		.active_leaves(Default::default())

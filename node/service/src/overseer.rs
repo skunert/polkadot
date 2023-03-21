@@ -129,6 +129,7 @@ where
 
 /// Obtain a prepared `OverseerBuilder`, that is initialized
 /// with all default values.
+#[cfg(feature = "full")]
 pub fn prepared_overseer_builder<Spawner, RuntimeClient>(
 	OverseerGenArgs {
 		keystore,
@@ -324,6 +325,121 @@ where
 	}
 }
 
+#[cfg(not(feature = "full"))]
+pub fn prepared_overseer_builder<Spawner, RuntimeClient>(
+	OverseerGenArgs {
+		keystore,
+		runtime_client,
+		parachains_db: _,
+		network_service,
+		sync_service,
+		authority_discovery_service,
+		pov_req_receiver: _,
+		chunk_req_receiver: _,
+		collation_req_receiver,
+		available_data_req_receiver,
+		statement_req_receiver: _,
+		dispute_req_receiver: _,
+		registry,
+		spawner,
+		is_collator,
+		approval_voting_config: _,
+		availability_config: _,
+		candidate_validation_config: _,
+		chain_selection_config: _,
+		dispute_coordinator_config: _,
+		pvf_checker_enabled: _,
+		overseer_message_channel_capacity_override,
+		req_protocol_names,
+		peerset_protocol_names,
+	}: OverseerGenArgs<Spawner, RuntimeClient>,
+) -> Result<
+	InitializedOverseerBuilder<
+		SpawnGlue<Spawner>,
+		Arc<RuntimeClient>,
+		AvailabilityRecoverySubsystem,
+		RuntimeApiSubsystem<RuntimeClient>,
+		NetworkBridgeRxSubsystem<
+			Arc<sc_network::NetworkService<Block, Hash>>,
+			AuthorityDiscoveryService,
+		>,
+		NetworkBridgeTxSubsystem<
+			Arc<sc_network::NetworkService<Block, Hash>>,
+			AuthorityDiscoveryService,
+		>,
+		CollationGenerationSubsystem,
+		CollatorProtocolSubsystem,
+	>,
+	Error,
+>
+where
+	RuntimeClient: 'static + ProvideRuntimeApi<Block> + HeaderBackend<Block> + AuxStore,
+	RuntimeClient::Api: ParachainHost<Block> + BabeApi<Block> + AuthorityDiscoveryApi<Block>,
+	Spawner: 'static + SpawnNamed + Clone + Unpin,
+{
+	use polkadot_node_subsystem_util::metrics::Metrics;
+
+	let metrics = <OverseerMetrics as MetricsTrait>::register(registry)?;
+
+	let spawner = SpawnGlue(spawner);
+
+	let network_bridge_metrics: NetworkBridgeMetrics = Metrics::register(registry)?;
+
+	let builder = Overseer::builder()
+		.network_bridge_tx(NetworkBridgeTxSubsystem::new(
+			network_service.clone(),
+			authority_discovery_service.clone(),
+			network_bridge_metrics.clone(),
+			req_protocol_names,
+			peerset_protocol_names.clone(),
+		))
+		.network_bridge_rx(NetworkBridgeRxSubsystem::new(
+			network_service.clone(),
+			authority_discovery_service.clone(),
+			Box::new(sync_service.clone()),
+			network_bridge_metrics,
+			peerset_protocol_names,
+		))
+		.availability_recovery(AvailabilityRecoverySubsystem::with_chunks_only(
+			available_data_req_receiver,
+			Metrics::register(registry)?,
+		))
+		.collation_generation(CollationGenerationSubsystem::new(Metrics::register(registry)?))
+		.collator_protocol({
+			let side = match is_collator {
+				IsCollator::Yes(collator_pair) => ProtocolSide::Collator(
+					network_service.local_peer_id(),
+					collator_pair,
+					collation_req_receiver,
+					Metrics::register(registry)?,
+				),
+				IsCollator::No => ProtocolSide::Validator {
+					keystore: keystore.clone(),
+					eviction_policy: Default::default(),
+					metrics: Metrics::register(registry)?,
+				},
+			};
+			CollatorProtocolSubsystem::new(side)
+		})
+		.runtime_api(RuntimeApiSubsystem::new(
+			runtime_client.clone(),
+			Metrics::register(registry)?,
+			spawner.clone(),
+		))
+		.activation_external_listeners(Default::default())
+		.span_per_active_leaf(Default::default())
+		.active_leaves(Default::default())
+		.supports_parachains(runtime_client)
+		.known_leaves(LruCache::new(KNOWN_LEAVES_CACHE_SIZE))
+		.metrics(metrics)
+		.spawner(spawner);
+
+	if let Some(capacity) = overseer_message_channel_capacity_override {
+		Ok(builder.message_channel_capacity(capacity))
+	} else {
+		Ok(builder)
+	}
+}
 /// Trait for the `fn` generating the overseer.
 ///
 /// Default behavior is to create an unmodified overseer, as `RealOverseerGen`

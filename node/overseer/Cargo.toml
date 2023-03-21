@@ -36,6 +36,7 @@ tikv-jemalloc-ctl = "0.5.0"
 
 [features]
 default = []
+full = []
 expand = ["orchestra/expand"]
 dotgraph = ["orchestra/dotgraph"]
 jemalloc-allocator = ["dep:tikv-jemalloc-ctl"]

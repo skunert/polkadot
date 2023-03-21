@@ -227,3 +227,6 @@ conf-files = [
 
 [package.metadata.spellcheck]
 config = "./scripts/ci/gitlab/spellcheck.toml"
+
+[patch.crates-io]
+orchestra = {path = "../orchestra/orchestra"}

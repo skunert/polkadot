@@ -455,13 +455,13 @@ pub async fn forward_events<P: BlockchainEvents<Block>>(client: Arc<P>, mut hand
 pub struct Overseer<SupportsParachains> {
 	#[subsystem(CandidateValidationMessage, sends: [
 		RuntimeApiMessage,
-	])]
+	], cfg: "full")]
 	candidate_validation: CandidateValidation,
 
 	#[subsystem(sends: [
 		CandidateValidationMessage,
 		RuntimeApiMessage,
-	])]
+	], cfg: "full")]
 	pvf_checker: PvfChecker,
 
 	#[subsystem(CandidateBackingMessage, sends: [
@@ -472,14 +472,14 @@ pub struct Overseer<SupportsParachains> {
 		StatementDistributionMessage,
 		ProvisionerMessage,
 		RuntimeApiMessage,
-	])]
+	], cfg: "full")]
 	candidate_backing: CandidateBacking,
 
 	#[subsystem(StatementDistributionMessage, sends: [
 		NetworkBridgeTxMessage,
 		CandidateBackingMessage,
 		RuntimeApiMessage,
-	])]
+	], cfg: "full")]
 	statement_distribution: StatementDistribution,
 
 	#[subsystem(AvailabilityDistributionMessage, sends: [
@@ -488,7 +488,7 @@ pub struct Overseer<SupportsParachains> {
 		ChainApiMessage,
 		RuntimeApiMessage,
 		NetworkBridgeTxMessage,
-	])]
+	], cfg: "full")]
 	availability_distribution: AvailabilityDistribution,
 
 	#[subsystem(AvailabilityRecoveryMessage, sends: [
@@ -502,14 +502,14 @@ pub struct Overseer<SupportsParachains> {
 		AvailabilityStoreMessage,
 		RuntimeApiMessage,
 		BitfieldDistributionMessage,
-	])]
+	], cfg: "full")]
 	bitfield_signing: BitfieldSigning,
 
 	#[subsystem(BitfieldDistributionMessage, sends: [
 		RuntimeApiMessage,
 		NetworkBridgeTxMessage,
 		ProvisionerMessage,
-	])]
+	], cfg: "full")]
 	bitfield_distribution: BitfieldDistribution,
 
 	#[subsystem(ProvisionerMessage, sends: [
@@ -517,7 +517,7 @@ pub struct Overseer<SupportsParachains> {
 		CandidateBackingMessage,
 		ChainApiMessage,
 		DisputeCoordinatorMessage,
-	])]
+	], cfg: "full")]
 	provisioner: Provisioner,
 
 	#[subsystem(blocking, RuntimeApiMessage, sends: [])]
@@ -526,7 +526,7 @@ pub struct Overseer<SupportsParachains> {
 	#[subsystem(blocking, AvailabilityStoreMessage, sends: [
 		ChainApiMessage,
 		RuntimeApiMessage,
-	])]
+	], cfg: "full")]
 	availability_store: AvailabilityStore,
 
 	#[subsystem(NetworkBridgeRxMessage, sends: [
@@ -543,7 +543,7 @@ pub struct Overseer<SupportsParachains> {
 	#[subsystem(NetworkBridgeTxMessage, sends: [])]
 	network_bridge_tx: NetworkBridgeTx,
 
-	#[subsystem(blocking, ChainApiMessage, sends: [])]
+	#[subsystem(blocking, ChainApiMessage, sends: [], cfg: "full")]
 	chain_api: ChainApi,
 
 	#[subsystem(CollationGenerationMessage, sends: [
@@ -562,7 +562,7 @@ pub struct Overseer<SupportsParachains> {
 	#[subsystem(ApprovalDistributionMessage, sends: [
 		NetworkBridgeTxMessage,
 		ApprovalVotingMessage,
-	])]
+	], cfg: "full")]
 	approval_distribution: ApprovalDistribution,
 
 	#[subsystem(blocking, ApprovalVotingMessage, sends: [
@@ -573,7 +573,7 @@ pub struct Overseer<SupportsParachains> {
 		ChainSelectionMessage,
 		DisputeCoordinatorMessage,
 		RuntimeApiMessage,
-	])]
+	], cfg: "full")]
 	approval_voting: ApprovalVoting,
 
 	#[subsystem(GossipSupportMessage, sends: [
@@ -581,7 +581,7 @@ pub struct Overseer<SupportsParachains> {
 		NetworkBridgeRxMessage, // TODO <https://github.com/paritytech/polkadot/issues/5626>
 		RuntimeApiMessage,
 		ChainSelectionMessage,
-	])]
+	], cfg: "full")]
 	gossip_support: GossipSupport,
 
 	#[subsystem(blocking, DisputeCoordinatorMessage, sends: [
@@ -593,17 +593,17 @@ pub struct Overseer<SupportsParachains> {
 		AvailabilityStoreMessage,
 		AvailabilityRecoveryMessage,
 		ChainSelectionMessage,
-	])]
+	], cfg: "full")]
 	dispute_coordinator: DisputeCoordinator,
 
 	#[subsystem(DisputeDistributionMessage, sends: [
 		RuntimeApiMessage,
 		DisputeCoordinatorMessage,
 		NetworkBridgeTxMessage,
-	])]
+	], cfg: "full")]
 	dispute_distribution: DisputeDistribution,
 
-	#[subsystem(blocking, ChainSelectionMessage, sends: [ChainApiMessage])]
+	#[subsystem(blocking, ChainSelectionMessage, sends: [ChainApiMessage], cfg: "full")]
 	chain_selection: ChainSelection,
 
 	/// External listeners waiting for a hash to be in the active-leave set.
