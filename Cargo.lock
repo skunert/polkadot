@@ -5149,8 +5149,8 @@ dependencies = [
 
 [[package]]
 name = "orchestra"
-version = "0.2.0"
-source = "git+https://github.com/skunert/orchestra?branch=skunert/feature-guarded-subsystems#d53d131c3a621326a6770e3f8891b91c5fd2b768"
+version = "0.2.1"
+source = "git+https://github.com/skunert/orchestra?branch=skunert/feature-guarded-subsystems#0e9709740b91305b95209230ae2e62914c1bce01"
 dependencies = [
  "async-trait",
  "dyn-clonable",
@@ -5165,10 +5165,11 @@ dependencies = [
 
 [[package]]
 name = "orchestra-proc-macro"
-version = "0.2.0"
-source = "git+https://github.com/skunert/orchestra?branch=skunert/feature-guarded-subsystems#d53d131c3a621326a6770e3f8891b91c5fd2b768"
+version = "0.2.1"
+source = "git+https://github.com/skunert/orchestra?branch=skunert/feature-guarded-subsystems#0e9709740b91305b95209230ae2e62914c1bce01"
 dependencies = [
- "expander 0.0.6",
+ "expander 1.0.0",
+ "indexmap",
  "itertools",
  "petgraph",
  "proc-macro-crate",
@@ -8219,7 +8220,7 @@ dependencies = [
 [[package]]
 name = "prioritized-metered-channel"
 version = "0.4.0"
-source = "git+https://github.com/skunert/orchestra?branch=skunert/feature-guarded-subsystems#d53d131c3a621326a6770e3f8891b91c5fd2b768"
+source = "git+https://github.com/skunert/orchestra?branch=skunert/feature-guarded-subsystems#0e9709740b91305b95209230ae2e62914c1bce01"
 dependencies = [
  "async-channel",
  "coarsetime",
